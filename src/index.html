@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Prompt Dock</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="mark">P</div>
+          <div>
+            <h1>Prompt Dock</h1>
+            <p id="shortcutLabel">快速唤起</p>
+          </div>
+        </div>
+
+        <button class="primary" id="newPrompt">+ 新建提示词</button>
+
+        <nav class="filters">
+          <button class="filter active" data-filter="all">全部</button>
+          <button class="filter" data-filter="favorite">收藏</button>
+          <button class="filter" data-filter="recent">最近复制</button>
+        </nav>
+
+        <div class="tagBox">
+          <div class="sectionTitle">标签</div>
+          <div id="tagList" class="tags"></div>
+        </div>
+
+        <div class="storage">
+          <div class="sectionTitle">本地数据</div>
+          <p id="storePath"></p>
+        </div>
+      </aside>
+
+      <main class="main">
+        <section class="topbar">
+          <div class="searchWrap">
+            <span>⌕</span>
+            <input id="search" type="search" placeholder="搜索标题、标签或内容" autocomplete="off" />
+          </div>
+          <button class="ghost" id="hideWindow">隐藏</button>
+        </section>
+
+        <section class="workspace">
+          <div class="listPane">
+            <div class="listHeader">
+              <span id="countLabel">0 条</span>
+              <button class="textButton" id="clearSearch">清空搜索</button>
+            </div>
+            <div id="promptList" class="promptList"></div>
+          </div>
+
+          <article class="editorPane">
+            <div class="editorHeader">
+              <input id="titleInput" class="titleInput" placeholder="提示词标题" />
+              <button class="iconButton" id="favoriteButton" title="收藏">☆</button>
+            </div>
+
+            <input id="tagInput" class="tagInput" placeholder="标签，用逗号分隔，例如：产品, 总结" />
+            <textarea id="contentInput" spellcheck="false" placeholder="在这里编写提示词内容"></textarea>
+
+            <div class="actions">
+              <button class="danger" id="deletePrompt">删除</button>
+              <div class="rightActions">
+                <span id="status"></span>
+                <button class="secondary" id="duplicatePrompt">复制为新提示词</button>
+                <button class="primary" id="copyPrompt">复制内容</button>
+              </div>
+            </div>
+          </article>
+        </section>
+      </main>
+    </div>
+
+    <script src="./renderer.js"></script>
+  </body>
+</html>
