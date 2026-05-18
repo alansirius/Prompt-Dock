@@ -1,6 +1,6 @@
 {
   "name": "prompt-dock",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "private": true,
   "description": "A local desktop prompt manager with quick summon, tray access, search, tags, and clipboard copy.",
   "main": "src/main.js",
@@ -26,6 +26,7 @@
       "package.json"
     ],
     "mac": {
+      "icon": "build/icon.png",
       "category": "public.app-category.productivity",
       "target": [
         "dmg"

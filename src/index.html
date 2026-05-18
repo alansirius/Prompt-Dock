@@ -10,8 +10,9 @@
     <div class="shell">
       <aside class="sidebar">
         <div class="brand">
+          <button class="sidebarToggle" id="sidebarToggle" title="收缩侧边栏" aria-label="收缩侧边栏">‹</button>
           <div class="mark">P</div>
-          <div>
+          <div class="brandText">
             <h1>Prompt Dock</h1>
             <p id="shortcutLabel">快速唤起</p>
           </div>
@@ -31,10 +32,11 @@
         </div>
 
         <div class="storage">
-          <div class="sectionTitle">本地数据</div>
-          <p id="storePath"></p>
+          <div class="sectionTitle">仓库</div>
+          <div class="storeHistory" id="storeHistory"></div>
         </div>
       </aside>
+      <div class="columnResize sidebarResize" id="sidebarResize" title="拖拽调整侧边栏宽度"></div>
 
       <main class="main">
         <section class="topbar">
@@ -53,6 +55,7 @@
             </div>
             <div id="promptList" class="promptList"></div>
           </div>
+          <div class="columnResize listResize" id="listResize" title="拖拽调整列表宽度"></div>
 
           <article class="editorPane">
             <div class="editorHeader">
@@ -61,6 +64,10 @@
             </div>
 
             <input id="tagInput" class="tagInput" placeholder="标签，用逗号分隔，例如：产品, 总结" />
+            <div class="contentHeader">
+              <span>提示词内容</span>
+              <button class="secondary" id="openTextEditor">使用编辑器</button>
+            </div>
             <textarea id="contentInput" spellcheck="false" placeholder="在这里编写提示词内容"></textarea>
 
             <div class="actions">
@@ -74,6 +81,55 @@
           </article>
         </section>
       </main>
+    </div>
+
+    <div class="editorDialog" id="editorDialog" hidden>
+      <div class="editorDialogPanel" role="dialog" aria-modal="true" aria-labelledby="editorDialogTitle">
+        <div class="editorDialogHeader">
+          <div>
+            <h2 id="editorDialogTitle">编辑器</h2>
+            <p>纯文本格式；保存当前内容为版本，开启多版本后可左右对比。</p>
+          </div>
+          <button class="ghost" id="closeTextEditor">关闭</button>
+        </div>
+
+        <div class="editorDialogBody">
+          <textarea id="editorContentInput" spellcheck="false" placeholder="在这里编写提示词内容"></textarea>
+
+          <section class="versionPanel" id="versionPanel">
+            <div class="versionHeader">
+              <div>
+                <div class="versionTitle">版本</div>
+                <p>保存当前文本，或选择两个版本查看差异。</p>
+              </div>
+              <label class="versionToggle">
+                <input id="versioningInput" type="checkbox" />
+                <span>多版本管理</span>
+              </label>
+            </div>
+            <div class="versionTools">
+              <input id="versionNameInput" class="versionNameInput" placeholder="版本名称，例如：初稿、优化版" />
+              <button class="secondary" id="saveVersion">保存为版本</button>
+            </div>
+            <div class="versionCompare" id="versionCompare">
+              <div class="versionSelectors">
+                <label>
+                  左侧版本
+                  <select id="leftVersionSelect"></select>
+                </label>
+                <label>
+                  右侧版本
+                  <select id="rightVersionSelect"></select>
+                </label>
+              </div>
+              <div class="diffGrid" id="diffGrid">
+                <pre id="leftDiff"></pre>
+                <pre id="rightDiff"></pre>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
     </div>
 
     <script src="./renderer.js"></script>

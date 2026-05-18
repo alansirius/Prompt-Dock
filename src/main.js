@@ -1,12 +1,16 @@
-const { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, nativeImage, Tray } = require("electron");
+const { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, Tray } = require("electron");
 const fs = require("fs/promises");
 const path = require("path");
 
 const SHORTCUT = "CommandOrControl+Shift+Space";
+const TRAY_ICON_PNG =
+  "iVBORw0KGgoAAAANSUhEUgAAACQAAAAkCAYAAADhAJiYAAAAZ0lEQVR4nO3TwQ0AIQwDQfpvGio4AU5MHJ1X4mvNI4zh3M+b4JNAUHDZmBCKhYFQbMw1qgUoGrxJ+R2R3TagsjsyCAWhGVQGkrshg3ag09JBX6MMUGhUDlRyPy9RUFIYFio1CYRzrVrJjxILrXl4EgAAAABJRU5ErkJggg==";
 
 let mainWindow;
 let tray;
 let storePath;
+let configPath;
+let storeHistory = [];
 
 const defaultPrompts = [
   {
@@ -36,13 +40,11 @@ const defaultPrompts = [
 ];
 
 function createTrayIcon() {
-  const svg = encodeURIComponent(`
-    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-      <rect width="32" height="32" rx="7" fill="#20242c"/>
-      <path d="M8 9.5h16v3H8zM8 15h13v3H8zM8 20.5h9v3H8z" fill="#f2c94c"/>
-    </svg>
-  `);
-  return nativeImage.createFromDataURL(`data:image/svg+xml;charset=utf-8,${svg}`);
+  const icon = nativeImage
+    .createFromBuffer(Buffer.from(TRAY_ICON_PNG, "base64"))
+    .resize({ width: 18, height: 18 });
+  icon.setTemplateImage(true);
+  return icon;
 }
 
 function createWindow() {
@@ -90,19 +92,58 @@ function toggleWindow() {
   }
 }
 
+function defaultStorePath() {
+  return path.join(app.getPath("userData"), "prompts.json");
+}
+
+async function ensureConfig() {
+  configPath = path.join(app.getPath("userData"), "config.json");
+  try {
+    const raw = await fs.readFile(configPath, "utf8");
+    const config = JSON.parse(raw);
+    storePath = config.storePath || defaultStorePath();
+    storeHistory = Array.isArray(config.storeHistory) ? config.storeHistory : [];
+    if (!storeHistory.includes(storePath)) storeHistory.unshift(storePath);
+  } catch {
+    storePath = defaultStorePath();
+    storeHistory = [storePath];
+    await writeConfig();
+  }
+}
+
+async function writeConfig() {
+  await fs.mkdir(path.dirname(configPath), { recursive: true });
+  await fs.writeFile(configPath, JSON.stringify({ storePath, storeHistory }, null, 2), "utf8");
+}
+
+async function rememberStore(filePath) {
+  storeHistory = [filePath, ...storeHistory.filter((item) => item !== filePath)].slice(0, 8);
+  await writeConfig();
+}
+
+function normalizePrompts(value) {
+  if (!Array.isArray(value)) throw new Error("数据源文件必须是提示词数组 JSON。");
+  return value;
+}
+
+async function loadStoreFile(filePath) {
+  const raw = await fs.readFile(filePath, "utf8");
+  return normalizePrompts(JSON.parse(raw));
+}
+
 async function ensureStore() {
-  storePath = path.join(app.getPath("userData"), "prompts.json");
+  if (!storePath) await ensureConfig();
   try {
     await fs.access(storePath);
   } catch {
+    await fs.mkdir(path.dirname(storePath), { recursive: true });
     await fs.writeFile(storePath, JSON.stringify(defaultPrompts, null, 2), "utf8");
   }
 }
 
 async function readPrompts() {
   await ensureStore();
-  const raw = await fs.readFile(storePath, "utf8");
-  return JSON.parse(raw);
+  return loadStoreFile(storePath);
 }
 
 async function writePrompts(prompts) {
@@ -111,10 +152,13 @@ async function writePrompts(prompts) {
 }
 
 app.whenReady().then(async () => {
+  await ensureConfig();
   await ensureStore();
   createWindow();
 
-  tray = new Tray(createTrayIcon());
+  const trayIcon = createTrayIcon();
+  tray = new Tray(trayIcon);
+  if (trayIcon.isEmpty()) tray.setTitle("PD");
   tray.setToolTip("Prompt Dock");
   tray.setContextMenu(
     Menu.buildFromTemplate([
@@ -134,6 +178,10 @@ app.on("will-quit", () => {
   globalShortcut.unregisterAll();
 });
 
+app.on("before-quit", () => {
+  app.isQuiting = true;
+});
+
 app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
   showWindow();
@@ -142,12 +190,43 @@ app.on("activate", () => {
 ipcMain.handle("prompts:load", async () => ({
   prompts: await readPrompts(),
   storePath,
+  storeHistory,
   shortcut: SHORTCUT
 }));
 
 ipcMain.handle("prompts:save", async (_event, prompts) => {
   await writePrompts(prompts);
   return { ok: true };
+});
+
+ipcMain.handle("store:choose", async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "选择提示词数据源",
+    defaultPath: path.dirname(storePath || defaultStorePath()),
+    filters: [{ name: "JSON 文件", extensions: ["json"] }],
+    properties: ["openFile"]
+  });
+
+  if (result.canceled || !result.filePaths[0]) {
+    return { canceled: true };
+  }
+
+  const nextPath = result.filePaths[0];
+  const prompts = await loadStoreFile(nextPath);
+  storePath = nextPath;
+  await rememberStore(storePath);
+  return { prompts, storePath, storeHistory };
+});
+
+ipcMain.handle("store:open", async (_event, filePath) => {
+  const prompts = await loadStoreFile(filePath);
+  storePath = filePath;
+  await rememberStore(storePath);
+  return {
+    prompts,
+    storePath,
+    storeHistory
+  };
 });
 
 ipcMain.handle("clipboard:copy", async (_event, text) => {
