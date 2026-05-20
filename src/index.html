@@ -10,12 +10,14 @@
     <div class="shell">
       <aside class="sidebar">
         <div class="brand">
-          <button class="sidebarToggle" id="sidebarToggle" title="收缩侧边栏" aria-label="收缩侧边栏">‹</button>
-          <div class="mark">P</div>
+          <button class="mark" id="brandMark" type="button" title="展开侧边栏" aria-label="展开侧边栏">P</button>
           <div class="brandText">
             <h1>Prompt Dock</h1>
             <p id="shortcutLabel">快速唤起</p>
           </div>
+          <button class="sidebarToggle" id="sidebarToggle" title="收缩侧边栏" aria-label="收缩侧边栏" aria-expanded="true">
+            <span></span>
+          </button>
         </div>
 
         <button class="primary" id="newPrompt">+ 新建提示词</button>
@@ -33,22 +35,24 @@
 
         <div class="storage">
           <div class="sectionTitle">仓库</div>
+          <button class="currentStore" id="currentStore" type="button">
+            <span>当前仓库</span>
+            <small id="currentStorePath">未选择仓库</small>
+          </button>
           <div class="storeHistory" id="storeHistory"></div>
         </div>
       </aside>
       <div class="columnResize sidebarResize" id="sidebarResize" title="拖拽调整侧边栏宽度"></div>
 
       <main class="main">
-        <section class="topbar">
-          <div class="searchWrap">
-            <span>⌕</span>
-            <input id="search" type="search" placeholder="搜索标题、标签或内容" autocomplete="off" />
-          </div>
-          <button class="ghost" id="hideWindow">隐藏</button>
-        </section>
-
         <section class="workspace">
           <div class="listPane">
+            <div class="listSearchBar">
+              <div class="searchWrap">
+                <span>⌕</span>
+                <input id="search" type="search" placeholder="搜索标题、标签或内容" autocomplete="off" />
+              </div>
+            </div>
             <div class="listHeader">
               <span id="countLabel">0 条</span>
               <button class="textButton" id="clearSearch">清空搜索</button>
@@ -88,45 +92,34 @@
         <div class="editorDialogHeader">
           <div>
             <h2 id="editorDialogTitle">编辑器</h2>
-            <p>纯文本格式；保存当前内容为版本，开启多版本后可左右对比。</p>
+            <p>左侧浏览版本，右侧按列编辑或查看内容。</p>
           </div>
           <button class="ghost" id="closeTextEditor">关闭</button>
         </div>
 
         <div class="editorDialogBody">
-          <textarea id="editorContentInput" spellcheck="false" placeholder="在这里编写提示词内容"></textarea>
-
-          <section class="versionPanel" id="versionPanel">
-            <div class="versionHeader">
+          <aside class="versionSidebar" id="versionSidebar">
+            <div class="versionSidebarHeader">
               <div>
                 <div class="versionTitle">版本</div>
-                <p>保存当前文本，或选择两个版本查看差异。</p>
+                <p>点击版本可在当前列呈现。</p>
               </div>
-              <label class="versionToggle">
-                <input id="versioningInput" type="checkbox" />
-                <span>多版本管理</span>
-              </label>
+              <button class="iconButton smallIconButton folderToggleButton" id="toggleVersionSidebar" type="button" title="收缩版本侧边栏" aria-label="收缩版本侧边栏">
+                <span class="collapseArrow">‹</span>
+              </button>
             </div>
-            <div class="versionTools">
+
+            <div class="versionList" id="versionList"></div>
+          </aside>
+
+          <section class="editorWorkspace">
+            <div class="editorToolbar">
               <input id="versionNameInput" class="versionNameInput" placeholder="版本名称，例如：初稿、优化版" />
-              <button class="secondary" id="saveVersion">保存为版本</button>
+              <button class="secondary" id="saveVersion">保存版本</button>
+              <button class="secondary" id="addEditorColumn">插入比较列</button>
             </div>
-            <div class="versionCompare" id="versionCompare">
-              <div class="versionSelectors">
-                <label>
-                  左侧版本
-                  <select id="leftVersionSelect"></select>
-                </label>
-                <label>
-                  右侧版本
-                  <select id="rightVersionSelect"></select>
-                </label>
-              </div>
-              <div class="diffGrid" id="diffGrid">
-                <pre id="leftDiff"></pre>
-                <pre id="rightDiff"></pre>
-              </div>
-            </div>
+
+            <div class="editorColumns" id="editorColumns"></div>
           </section>
         </div>
       </div>

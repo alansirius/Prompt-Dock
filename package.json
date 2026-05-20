@@ -1,6 +1,6 @@
 {
   "name": "prompt-dock",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "private": true,
   "description": "A local desktop prompt manager with quick summon, tray access, search, tags, and clipboard copy.",
   "main": "src/main.js",
@@ -18,12 +18,16 @@
     "appId": "com.local.promptdock",
     "productName": "Prompt Dock",
     "electronDist": "node_modules/electron/dist",
+    "asar": true,
+    "compression": "maximum",
     "directories": {
       "output": "dist"
     },
     "files": [
       "src/**/*",
-      "package.json"
+      "package.json",
+      "!**/*.map",
+      "!**/.DS_Store"
     ],
     "mac": {
       "icon": "build/icon.png",

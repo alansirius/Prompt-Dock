@@ -5,17 +5,25 @@ const state = {
   tag: "",
   query: "",
   storePath: "",
-  saveTimer: null
+  saveTimer: null,
+  versionSidebarCollapsed: false,
+  editorColumns: [],
+  activeEditorColumnId: "",
+  columnDiffEnabled: false
 };
 
 const $ = (selector) => document.querySelector(selector);
+const MAX_EDITOR_COLUMNS = 2;
 
 const elements = {
   shell: $(".shell"),
+  brandMark: $("#brandMark"),
   sidebarToggle: $("#sidebarToggle"),
   sidebarResize: $("#sidebarResize"),
   listResize: $("#listResize"),
   shortcutLabel: $("#shortcutLabel"),
+  currentStore: $("#currentStore"),
+  currentStorePath: $("#currentStorePath"),
   storeHistory: $("#storeHistory"),
   search: $("#search"),
   promptList: $("#promptList"),
@@ -25,17 +33,15 @@ const elements = {
   tagInput: $("#tagInput"),
   openTextEditor: $("#openTextEditor"),
   editorDialog: $("#editorDialog"),
+  editorDialogBody: $(".editorDialogBody"),
   closeTextEditor: $("#closeTextEditor"),
-  editorContentInput: $("#editorContentInput"),
-  versioningInput: $("#versioningInput"),
-  versionPanel: $("#versionPanel"),
-  versionCompare: $("#versionCompare"),
+  versionSidebar: $("#versionSidebar"),
+  toggleVersionSidebar: $("#toggleVersionSidebar"),
+  versionList: $("#versionList"),
+  editorColumns: $("#editorColumns"),
   versionNameInput: $("#versionNameInput"),
   saveVersion: $("#saveVersion"),
-  leftVersionSelect: $("#leftVersionSelect"),
-  rightVersionSelect: $("#rightVersionSelect"),
-  leftDiff: $("#leftDiff"),
-  rightDiff: $("#rightDiff"),
+  addEditorColumn: $("#addEditorColumn"),
   contentInput: $("#contentInput"),
   favoriteButton: $("#favoriteButton"),
   status: $("#status")
@@ -62,52 +68,41 @@ function versionLabel(version, index) {
 
 function ensureVersions(prompt) {
   if (!Array.isArray(prompt.versions)) prompt.versions = [];
-  if (!prompt.versions.length) {
-    prompt.versions.push({
-      id: uid(),
-      name: "初始版本",
-      content: prompt.content || "",
-      createdAt: Date.now()
-    });
-  }
 }
 
 function escapeText(value) {
   return escapeHtml(value || "");
 }
 
-function buildSideBySideDiff(leftText, rightText) {
-  const left = String(leftText || "").split("\n");
-  const right = String(rightText || "").split("\n");
-  const table = Array.from({ length: left.length + 1 }, () => Array(right.length + 1).fill(0));
+function buildInlineDiff(baseText, targetText) {
+  const base = String(baseText || "").split("\n");
+  const target = String(targetText || "").split("\n");
+  const table = Array.from({ length: base.length + 1 }, () => Array(target.length + 1).fill(0));
 
-  for (let i = left.length - 1; i >= 0; i -= 1) {
-    for (let j = right.length - 1; j >= 0; j -= 1) {
-      table[i][j] = left[i] === right[j] ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1]);
+  for (let i = base.length - 1; i >= 0; i -= 1) {
+    for (let j = target.length - 1; j >= 0; j -= 1) {
+      table[i][j] = base[i] === target[j] ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1]);
     }
   }
 
   const rows = [];
   let i = 0;
   let j = 0;
-  while (i < left.length || j < right.length) {
-    if (i < left.length && j < right.length && left[i] === right[j]) {
-      rows.push({ left: left[i], right: right[j], type: "same" });
+  while (i < base.length || j < target.length) {
+    if (i < base.length && j < target.length && base[i] === target[j]) {
+      rows.push({ text: target[j], type: "same" });
       i += 1;
       j += 1;
-    } else if (j >= right.length || (i < left.length && table[i + 1][j] >= table[i][j + 1])) {
-      rows.push({ left: left[i], right: "", type: "removed" });
+    } else if (j >= target.length || (i < base.length && table[i + 1][j] >= table[i][j + 1])) {
+      rows.push({ text: `- ${base[i]}`, type: "removed" });
       i += 1;
     } else {
-      rows.push({ left: "", right: right[j], type: "added" });
+      rows.push({ text: `+ ${target[j]}`, type: "added" });
       j += 1;
     }
   }
 
-  return {
-    left: rows.map((row) => `<span class="${row.type}">${escapeText(row.left) || " "}</span>`).join("\n"),
-    right: rows.map((row) => `<span class="${row.type}">${escapeText(row.right) || " "}</span>`).join("\n")
-  };
+  return rows.map((row) => `<span class="${row.type}">${escapeText(row.text) || " "}</span>`).join("\n");
 }
 
 function promptMatches(prompt) {
@@ -154,29 +149,18 @@ function fileNameFromPath(filePath) {
 
 function renderStoreHistory(history = []) {
   elements.storeHistory.innerHTML = "";
+  elements.currentStorePath.textContent = state.storePath || "点击选择提示词 JSON 数据源";
+  elements.currentStore.title = state.storePath ? `当前仓库：${state.storePath}` : "选择仓库";
 
-  const openButton = document.createElement("button");
-  openButton.className = "storeHistoryItem storeOpenItem";
-  openButton.type = "button";
-  openButton.innerHTML = `
-    <span>打开仓库</span>
-    <small>选择一个提示词 JSON 数据源</small>
-  `;
-  openButton.addEventListener("click", () => {
-    switchStore(() => window.promptDock.chooseStore(), "已切换数据源");
-  });
-  elements.storeHistory.appendChild(openButton);
-
-  history.forEach((filePath) => {
+  history.filter((filePath) => filePath !== state.storePath).forEach((filePath) => {
     const button = document.createElement("button");
-    button.className = `storeHistoryItem${filePath === state.storePath ? " active" : ""}`;
+    button.className = "storeHistoryItem";
     button.type = "button";
     button.innerHTML = `
       <span>${escapeHtml(fileNameFromPath(filePath))}</span>
-      <small>${filePath === state.storePath ? "当前仓库" : "最近使用"}</small>
+      <small>最近使用</small>
     `;
     button.addEventListener("click", () => {
-      if (filePath === state.storePath) return;
       switchStore(() => window.promptDock.openStore(filePath), "已切换数据源");
     });
     elements.storeHistory.appendChild(button);
@@ -189,6 +173,9 @@ function applyLoadedStore(result, message) {
   state.selectedId = state.prompts[0]?.id || null;
   state.tag = "";
   state.storePath = result.storePath || "";
+  state.editorColumns = [];
+  state.activeEditorColumnId = "";
+  state.columnDiffEnabled = false;
   renderStoreHistory(result.storeHistory || []);
   elements.status.textContent = message;
   render();
@@ -292,15 +279,12 @@ function renderEditor() {
 
   elements.titleInput.disabled = disabled;
   elements.tagInput.disabled = disabled;
-  elements.versioningInput.disabled = disabled;
   elements.contentInput.disabled = disabled;
   elements.openTextEditor.disabled = disabled;
-  elements.editorContentInput.disabled = disabled;
   elements.favoriteButton.disabled = disabled;
   elements.versionNameInput.disabled = disabled;
   elements.saveVersion.disabled = disabled;
-  elements.leftVersionSelect.disabled = disabled || !prompt?.versioningEnabled;
-  elements.rightVersionSelect.disabled = disabled || !prompt?.versioningEnabled;
+  elements.addEditorColumn.disabled = disabled;
   $("#deletePrompt").disabled = disabled;
   $("#duplicatePrompt").disabled = disabled;
   $("#copyPrompt").disabled = disabled;
@@ -308,14 +292,13 @@ function renderEditor() {
   if (!prompt) {
     elements.titleInput.value = "";
     elements.tagInput.value = "";
-    elements.versioningInput.checked = false;
-    elements.versionPanel.hidden = true;
-    elements.versionCompare.hidden = true;
     elements.versionNameInput.value = "";
-    elements.leftDiff.textContent = "";
-    elements.rightDiff.textContent = "";
+    elements.versionList.innerHTML = "";
+    elements.editorColumns.innerHTML = "";
+    elements.editorDialogBody.classList.remove("versionSidebarCollapsed");
+    state.editorColumns = [];
+    state.activeEditorColumnId = "";
     elements.contentInput.value = "";
-    elements.editorContentInput.value = "";
     elements.favoriteButton.textContent = "☆";
     closeTextEditor();
     return;
@@ -323,56 +306,165 @@ function renderEditor() {
 
   elements.titleInput.value = prompt.title || "";
   elements.tagInput.value = (prompt.tags || []).join(", ");
-  elements.versioningInput.checked = Boolean(prompt.versioningEnabled);
-  elements.versionPanel.hidden = false;
   renderVersionPanel(prompt);
   elements.contentInput.value = prompt.content || "";
-  elements.editorContentInput.value = prompt.content || "";
   elements.favoriteButton.textContent = prompt.favorite ? "★" : "☆";
 }
 
 function renderVersionPanel(prompt) {
-  elements.versionCompare.hidden = !prompt.versioningEnabled;
-  if (!Array.isArray(prompt.versions)) prompt.versions = [];
-  if (prompt.versioningEnabled) ensureVersions(prompt);
+  ensureVersions(prompt);
+  elements.editorDialogBody.classList.toggle("versionSidebarCollapsed", state.versionSidebarCollapsed);
+  elements.versionSidebar.classList.toggle("collapsed", state.versionSidebarCollapsed);
+  elements.toggleVersionSidebar.title = state.versionSidebarCollapsed ? "展开版本侧边栏" : "收缩版本侧边栏";
+  elements.toggleVersionSidebar.setAttribute("aria-label", state.versionSidebarCollapsed ? "展开版本侧边栏" : "收缩版本侧边栏");
+  elements.toggleVersionSidebar.setAttribute("aria-expanded", String(!state.versionSidebarCollapsed));
 
-  const options = prompt.versions
-    .map((version, index) => `<option value="${version.id}">${escapeHtml(versionLabel(version, index))}</option>`)
-    .join("");
-  const previousLeft = elements.leftVersionSelect.value;
-  const previousRight = elements.rightVersionSelect.value;
-
-  elements.leftVersionSelect.innerHTML = options;
-  elements.rightVersionSelect.innerHTML = options;
-
-  elements.leftVersionSelect.value = prompt.versions.some((version) => version.id === previousLeft)
-    ? previousLeft
-    : prompt.versions[0]?.id || "";
-  elements.rightVersionSelect.value = prompt.versions.some((version) => version.id === previousRight)
-    ? previousRight
-    : prompt.versions[prompt.versions.length - 1]?.id || "";
-
-  if (prompt.versioningEnabled) {
-    renderDiff(prompt);
-  } else {
-    elements.leftDiff.textContent = "";
-    elements.rightDiff.textContent = "";
+  if (!state.editorColumns.length) {
+    const id = uid();
+    state.editorColumns = [{ id, versionId: "current" }];
+    state.activeEditorColumnId = id;
   }
+
+  state.editorColumns = state.editorColumns.slice(0, MAX_EDITOR_COLUMNS).map((column) => {
+    const exists = column.versionId === "current" || prompt.versions.some((version) => version.id === column.versionId);
+    return exists ? column : { ...column, versionId: "current" };
+  });
+  if (!state.editorColumns.some((column) => column.id === state.activeEditorColumnId)) {
+    state.activeEditorColumnId = state.editorColumns[0]?.id || "";
+  }
+  if (state.editorColumns.length !== 2) state.columnDiffEnabled = false;
+
+  renderVersionList(prompt);
+  renderEditorColumns(prompt);
 }
 
-function renderDiff(prompt) {
-  const left = prompt.versions?.find((version) => version.id === elements.leftVersionSelect.value);
-  const right = prompt.versions?.find((version) => version.id === elements.rightVersionSelect.value);
+function versionContent(prompt, versionId) {
+  if (versionId === "current") return prompt.content || "";
+  return prompt.versions.find((version) => version.id === versionId)?.content || "";
+}
 
-  if (!left || !right) {
-    elements.leftDiff.textContent = "暂无可比较版本";
-    elements.rightDiff.textContent = "暂无可比较版本";
-    return;
+function renderVersionList(prompt) {
+  const items = [
+    {
+      id: "current",
+      title: "当前内容",
+      meta: `${prompt.versions.length} 个历史版本`
+    },
+    ...prompt.versions.map((version, index) => ({
+      id: version.id,
+      title: versionLabel(version, index),
+      meta: new Date(version.createdAt || Date.now()).toLocaleString("zh-CN", { hour12: false })
+    }))
+  ];
+
+  const activeColumn = state.editorColumns.find((column) => column.id === state.activeEditorColumnId) || state.editorColumns[0];
+  elements.versionList.innerHTML = items.map((item) => `
+    <button class="versionListItem${activeColumn?.versionId === item.id ? " active" : ""}" type="button" data-version-id="${escapeHtml(item.id)}">
+      <span class="versionItemTitle">${escapeHtml(item.title)}</span>
+      <small class="versionItemMeta">${escapeHtml(item.meta)}</small>
+      ${item.id === "current" ? "" : `<span class="versionDelete" role="button" tabindex="0" data-version-id="${escapeHtml(item.id)}" title="删除版本" aria-label="删除版本">×</span>`}
+    </button>
+  `).join("");
+}
+
+function renderEditorColumns(prompt) {
+  const versionOptions = [
+    `<option value="current">当前内容</option>`,
+    ...prompt.versions.map((version, index) => `<option value="${version.id}">${escapeHtml(versionLabel(version, index))}</option>`)
+  ].join("");
+
+  elements.editorColumns.style.setProperty("--editor-column-count", String(state.editorColumns.length || 1));
+  elements.addEditorColumn.disabled = state.editorColumns.length >= MAX_EDITOR_COLUMNS && state.columnDiffEnabled;
+  elements.addEditorColumn.title = state.editorColumns.length >= MAX_EDITOR_COLUMNS ? "已插入比较列" : "插入比较列";
+  elements.addEditorColumn.textContent = state.editorColumns.length >= MAX_EDITOR_COLUMNS ? "已插入比较列" : "插入比较列";
+
+  elements.editorColumns.innerHTML = state.editorColumns.map((column, index) => {
+    const content = versionContent(prompt, column.versionId);
+    const previousColumn = state.editorColumns[index - 1];
+    const isCurrent = column.versionId === "current";
+    const isActive = column.id === state.activeEditorColumnId;
+    const stateText = state.columnDiffEnabled && previousColumn ? "对比左列" : isCurrent ? "可编辑" : "只读";
+    const removeButton = state.editorColumns.length > 1
+      ? `<button class="iconButton smallIconButton removeColumn" type="button" data-column-id="${column.id}" title="移除列">×</button>`
+      : "";
+    const body = state.columnDiffEnabled && previousColumn
+      ? `<pre class="editorColumnDiff">${buildInlineDiff(versionContent(prompt, previousColumn.versionId), content)}</pre>`
+      : `<textarea class="editorColumnTextarea" spellcheck="false" data-column-id="${column.id}" ${isCurrent ? "" : "readonly"}>${escapeText(content)}</textarea>`;
+
+    return `
+      <article class="editorColumn${isActive ? " active" : ""}" data-column-id="${column.id}">
+        <div class="editorColumnHeader">
+          <select class="editorColumnSelect" data-column-id="${column.id}" title="选择此列呈现的版本">
+            ${versionOptions}
+          </select>
+          <span class="editorColumnState">${stateText}</span>
+          ${removeButton}
+        </div>
+        ${body}
+      </article>
+    `;
+  }).join("");
+
+  elements.editorColumns.querySelectorAll(".editorColumnSelect").forEach((select) => {
+    const column = state.editorColumns.find((item) => item.id === select.dataset.columnId);
+    select.value = column?.versionId || "current";
+  });
+}
+
+function deleteVersion(versionId) {
+  const prompt = selectedPrompt();
+  if (!prompt || versionId === "current") return;
+  const version = prompt.versions.find((item) => item.id === versionId);
+  if (!version) return;
+
+  const confirmed = confirm(`删除版本「${version.name || "未命名版本"}」？`);
+  if (!confirmed) return;
+
+  prompt.versions = prompt.versions.filter((item) => item.id !== versionId);
+  state.editorColumns = state.editorColumns.map((column) => (
+    column.versionId === versionId ? { ...column, versionId: "current" } : column
+  ));
+  prompt.updatedAt = Date.now();
+  scheduleSave();
+  renderVersionPanel(prompt);
+  elements.status.textContent = "已删除版本";
+}
+
+function setActiveColumnVersion(versionId) {
+  const prompt = selectedPrompt();
+  if (!prompt) return;
+  const column = state.editorColumns.find((item) => item.id === state.activeEditorColumnId) || state.editorColumns[0];
+  if (!column) return;
+  column.versionId = versionId;
+  state.activeEditorColumnId = column.id;
+  renderVersionPanel(prompt);
+}
+
+function addEditorColumn() {
+  const prompt = selectedPrompt();
+  if (!prompt) return;
+
+  if (state.editorColumns.length < MAX_EDITOR_COLUMNS) {
+    const latestVersion = prompt.versions[prompt.versions.length - 1];
+    const column = { id: uid(), versionId: latestVersion?.id || "current" };
+    state.editorColumns.push(column);
+    state.activeEditorColumnId = column.id;
   }
+  if (state.editorColumns.length === MAX_EDITOR_COLUMNS) {
+    state.columnDiffEnabled = true;
+  }
+  renderVersionPanel(prompt);
+}
 
-  const diff = buildSideBySideDiff(left.content, right.content);
-  elements.leftDiff.innerHTML = diff.left;
-  elements.rightDiff.innerHTML = diff.right;
+function removeEditorColumn(columnId) {
+  const prompt = selectedPrompt();
+  if (!prompt || state.editorColumns.length <= 1) return;
+  state.editorColumns = state.editorColumns.filter((column) => column.id !== columnId);
+  if (!state.editorColumns.some((column) => column.id === state.activeEditorColumnId)) {
+    state.activeEditorColumnId = state.editorColumns[0]?.id || "";
+  }
+  if (state.editorColumns.length !== 2) state.columnDiffEnabled = false;
+  renderVersionPanel(prompt);
 }
 
 function saveCurrentVersion() {
@@ -390,21 +482,26 @@ function saveCurrentVersion() {
   prompt.updatedAt = Date.now();
   elements.versionNameInput.value = "";
   scheduleSave();
-  renderVersionPanel(prompt);
-  if (prompt.versioningEnabled) {
-    elements.rightVersionSelect.value = version.id;
-    renderDiff(prompt);
+  if (state.editorColumns.length) {
+    const column = state.editorColumns.find((item) => item.id === state.activeEditorColumnId) || state.editorColumns[state.editorColumns.length - 1];
+    column.versionId = version.id;
+    state.activeEditorColumnId = column.id;
   }
+  renderVersionPanel(prompt);
   elements.status.textContent = `已保存版本「${version.name}」`;
 }
 
 function openTextEditor() {
   const prompt = selectedPrompt();
   if (!prompt) return;
-  elements.editorContentInput.value = prompt.content || "";
+  if (!state.editorColumns.length) {
+    const id = uid();
+    state.editorColumns = [{ id, versionId: "current" }];
+    state.activeEditorColumnId = id;
+  }
   renderVersionPanel(prompt);
   elements.editorDialog.hidden = false;
-  elements.editorContentInput.focus();
+  elements.editorColumns.querySelector(".editorColumnTextarea:not([readonly])")?.focus();
 }
 
 function closeTextEditor() {
@@ -413,9 +510,9 @@ function closeTextEditor() {
 
 function toggleSidebar() {
   const collapsed = elements.shell.classList.toggle("sidebarCollapsed");
-  elements.sidebarToggle.textContent = collapsed ? "›" : "‹";
   elements.sidebarToggle.title = collapsed ? "展开侧边栏" : "收缩侧边栏";
   elements.sidebarToggle.setAttribute("aria-label", collapsed ? "展开侧边栏" : "收缩侧边栏");
+  elements.sidebarToggle.setAttribute("aria-expanded", String(!collapsed));
 }
 
 function clamp(value, min, max) {
@@ -513,7 +610,6 @@ function createPrompt(source) {
     title: source?.title ? `${source.title} 副本` : "未命名提示词",
     tags: source?.tags ? [...source.tags] : [],
     favorite: false,
-    versioningEnabled: false,
     versions: [],
     content: source?.content || "",
     createdAt: Date.now(),
@@ -544,7 +640,13 @@ function bindEvents() {
   });
 
   elements.sidebarToggle.addEventListener("click", toggleSidebar);
+  elements.brandMark.addEventListener("click", () => {
+    if (elements.shell.classList.contains("sidebarCollapsed")) toggleSidebar();
+  });
   bindResizableColumns();
+  elements.currentStore.addEventListener("click", () => {
+    switchStore(() => window.promptDock.chooseStore(), "已切换数据源");
+  });
   elements.openTextEditor.addEventListener("click", openTextEditor);
   elements.closeTextEditor.addEventListener("click", closeTextEditor);
   elements.editorDialog.addEventListener("click", (event) => {
@@ -553,7 +655,6 @@ function bindEvents() {
   $("#newPrompt").addEventListener("click", () => createPrompt());
   $("#duplicatePrompt").addEventListener("click", () => createPrompt(selectedPrompt()));
   $("#copyPrompt").addEventListener("click", copySelected);
-  $("#hideWindow").addEventListener("click", () => window.promptDock.hide());
   $("#clearSearch").addEventListener("click", () => {
     state.query = "";
     elements.search.value = "";
@@ -577,32 +678,72 @@ function bindEvents() {
     });
   });
 
-  elements.versioningInput.addEventListener("change", (event) => {
-    updateSelected((prompt) => {
-      prompt.versioningEnabled = event.target.checked;
-      if (prompt.versioningEnabled) ensureVersions(prompt);
-    });
-    renderEditor();
-  });
-
   elements.saveVersion.addEventListener("click", saveCurrentVersion);
-  elements.leftVersionSelect.addEventListener("change", () => {
+  elements.toggleVersionSidebar.addEventListener("click", () => {
+    state.versionSidebarCollapsed = !state.versionSidebarCollapsed;
     const prompt = selectedPrompt();
-    if (prompt) renderDiff(prompt);
+    if (prompt) renderVersionPanel(prompt);
   });
-  elements.rightVersionSelect.addEventListener("change", () => {
-    const prompt = selectedPrompt();
-    if (prompt) renderDiff(prompt);
+  elements.addEditorColumn.addEventListener("click", addEditorColumn);
+  elements.versionList.addEventListener("click", (event) => {
+    const deleteButton = event.target.closest(".versionDelete");
+    if (deleteButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      deleteVersion(deleteButton.dataset.versionId);
+      return;
+    }
+    const button = event.target.closest(".versionListItem");
+    if (!button) return;
+    setActiveColumnVersion(button.dataset.versionId);
+  });
+  elements.versionList.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const deleteButton = event.target.closest(".versionDelete");
+    if (!deleteButton) return;
+    event.preventDefault();
+    deleteVersion(deleteButton.dataset.versionId);
   });
 
   elements.contentInput.addEventListener("input", (event) => {
     updateSelected((prompt) => {
       prompt.content = event.target.value;
     });
-    elements.editorContentInput.value = event.target.value;
+    const prompt = selectedPrompt();
+    if (prompt && !elements.editorDialog.hidden && state.editorColumns.some((column) => column.versionId === "current")) {
+      renderEditorColumns(prompt);
+    }
   });
 
-  elements.editorContentInput.addEventListener("input", (event) => {
+  elements.editorColumns.addEventListener("click", (event) => {
+    const removeButton = event.target.closest(".removeColumn");
+    if (removeButton) {
+      event.stopPropagation();
+      removeEditorColumn(removeButton.dataset.columnId);
+      return;
+    }
+    if (event.target.closest("select, button, textarea")) return;
+    const column = event.target.closest(".editorColumn");
+    if (!column) return;
+    state.activeEditorColumnId = column.dataset.columnId;
+    const prompt = selectedPrompt();
+    if (prompt) renderVersionPanel(prompt);
+  });
+
+  elements.editorColumns.addEventListener("change", (event) => {
+    if (!event.target.matches(".editorColumnSelect")) return;
+    const column = state.editorColumns.find((item) => item.id === event.target.dataset.columnId);
+    const prompt = selectedPrompt();
+    if (!column || !prompt) return;
+    column.versionId = event.target.value;
+    state.activeEditorColumnId = column.id;
+    renderVersionPanel(prompt);
+  });
+
+  elements.editorColumns.addEventListener("input", (event) => {
+    if (!event.target.matches(".editorColumnTextarea")) return;
+    const column = state.editorColumns.find((item) => item.id === event.target.dataset.columnId);
+    if (!column || column.versionId !== "current") return;
     updateSelected((prompt) => {
       prompt.content = event.target.value;
     });
