@@ -66,6 +66,24 @@ function versionLabel(version, index) {
   return version.name || `版本 ${index + 1}`;
 }
 
+function versionTag(version, index) {
+  const match = String(version.label || version.tag || "").trim().match(/^V(\d+)$/i);
+  return match ? `V${Number(match[1])}` : `V${index + 1}`;
+}
+
+function nextVersionTag(prompt) {
+  ensureVersions(prompt);
+  const highestVersionNumber = prompt.versions.reduce((highest, version, index) => {
+    const match = versionTag(version, index).match(/^V(\d+)$/i);
+    return match ? Math.max(highest, Number(match[1])) : highest;
+  }, 0);
+  return `V${highestVersionNumber + 1}`;
+}
+
+function formatVersionCreatedAt(timestamp) {
+  return new Date(timestamp || Date.now()).toLocaleString("zh-CN", { hour12: false });
+}
+
 function ensureVersions(prompt) {
   if (!Array.isArray(prompt.versions)) prompt.versions = [];
 }
@@ -204,8 +222,18 @@ function buildInlineDiff(baseText, targetText) {
   return renderDiffRows(buildSequenceDiff(base, target));
 }
 
+function versionSearchText(prompt) {
+  ensureVersions(prompt);
+  return prompt.versions.map((version, index) => [
+    versionLabel(version, index),
+    versionTag(version, index),
+    formatVersionCreatedAt(version.createdAt),
+    version.content || ""
+  ].join(" ")).join(" ");
+}
+
 function promptMatches(prompt) {
-  const haystack = `${prompt.title} ${(prompt.tags || []).join(" ")} ${prompt.content}`.toLowerCase();
+  const haystack = `${prompt.title} ${(prompt.tags || []).join(" ")} ${prompt.content} ${versionSearchText(prompt)}`.toLowerCase();
   const queryOk = !state.query || haystack.includes(state.query.toLowerCase());
   const tagOk = !state.tag || (prompt.tags || []).includes(state.tag);
   const filterOk =
@@ -412,11 +440,7 @@ function renderEditor() {
 
 function renderVersionPanel(prompt) {
   ensureVersions(prompt);
-  elements.editorDialogBody.classList.toggle("versionSidebarCollapsed", state.versionSidebarCollapsed);
-  elements.versionSidebar.classList.toggle("collapsed", state.versionSidebarCollapsed);
-  elements.toggleVersionSidebar.title = state.versionSidebarCollapsed ? "展开版本侧边栏" : "收缩版本侧边栏";
-  elements.toggleVersionSidebar.setAttribute("aria-label", state.versionSidebarCollapsed ? "展开版本侧边栏" : "收缩版本侧边栏");
-  elements.toggleVersionSidebar.setAttribute("aria-expanded", String(!state.versionSidebarCollapsed));
+  updateVersionSidebarState();
 
   if (!state.editorColumns.length) {
     const id = uid();
@@ -437,6 +461,14 @@ function renderVersionPanel(prompt) {
   renderEditorColumns(prompt);
 }
 
+function updateVersionSidebarState() {
+  elements.editorDialogBody.classList.toggle("versionSidebarCollapsed", state.versionSidebarCollapsed);
+  elements.versionSidebar.classList.toggle("collapsed", state.versionSidebarCollapsed);
+  elements.toggleVersionSidebar.title = state.versionSidebarCollapsed ? "展开版本侧边栏" : "收缩版本侧边栏";
+  elements.toggleVersionSidebar.setAttribute("aria-label", state.versionSidebarCollapsed ? "展开版本侧边栏" : "收缩版本侧边栏");
+  elements.toggleVersionSidebar.setAttribute("aria-expanded", String(!state.versionSidebarCollapsed));
+}
+
 function versionContent(prompt, versionId) {
   if (versionId === "current") return prompt.content || "";
   return prompt.versions.find((version) => version.id === versionId)?.content || "";
@@ -447,12 +479,14 @@ function renderVersionList(prompt) {
     {
       id: "current",
       title: "当前内容",
-      meta: `${prompt.versions.length} 个历史版本`
+      meta: `${prompt.versions.length} 个历史版本`,
+      label: ""
     },
     ...prompt.versions.map((version, index) => ({
       id: version.id,
       title: versionLabel(version, index),
-      meta: new Date(version.createdAt || Date.now()).toLocaleString("zh-CN", { hour12: false })
+      meta: `创建于 ${formatVersionCreatedAt(version.createdAt)}`,
+      label: versionTag(version, index)
     }))
   ];
 
@@ -460,6 +494,7 @@ function renderVersionList(prompt) {
   elements.versionList.innerHTML = items.map((item) => `
     <button class="versionListItem${activeColumn?.versionId === item.id ? " active" : ""}" type="button" data-version-id="${escapeHtml(item.id)}">
       <span class="versionItemTitle">${escapeHtml(item.title)}</span>
+      ${item.label ? `<span class="versionItemLabel">${escapeHtml(item.label)}</span>` : ""}
       <small class="versionItemMeta">${escapeHtml(item.meta)}</small>
       ${item.id === "current" ? "" : `<span class="versionDelete" role="button" tabindex="0" data-version-id="${escapeHtml(item.id)}" title="删除版本" aria-label="删除版本">×</span>`}
     </button>
@@ -469,7 +504,11 @@ function renderVersionList(prompt) {
 function renderEditorColumns(prompt) {
   const versionOptions = [
     `<option value="current">当前内容</option>`,
-    ...prompt.versions.map((version, index) => `<option value="${version.id}">${escapeHtml(versionLabel(version, index))}</option>`)
+    ...prompt.versions.map((version, index) => {
+      const label = versionTag(version, index);
+      const title = label ? `${label} · ${versionLabel(version, index)}` : versionLabel(version, index);
+      return `<option value="${version.id}">${escapeHtml(title)}</option>`;
+    })
   ].join("");
 
   elements.editorColumns.style.setProperty("--editor-column-count", String(state.editorColumns.length || 1));
@@ -574,6 +613,7 @@ function saveCurrentVersion() {
   const version = {
     id: uid(),
     name: elements.versionNameInput.value.trim() || `版本 ${prompt.versions.length + 1}`,
+    label: nextVersionTag(prompt),
     content: prompt.content || "",
     createdAt: Date.now()
   };
@@ -587,7 +627,7 @@ function saveCurrentVersion() {
     state.activeEditorColumnId = column.id;
   }
   renderVersionPanel(prompt);
-  elements.status.textContent = `已保存版本「${version.name}」`;
+  elements.status.textContent = `已保存版本「${version.label ? `${version.label} · ` : ""}${version.name}」`;
 }
 
 function openTextEditor() {
@@ -709,7 +749,7 @@ function createPrompt(source) {
     title: source?.title ? `${source.title} 副本` : "未命名提示词",
     tags: source?.tags ? [...source.tags] : [],
     favorite: false,
-    versions: [],
+    versions: source?.versions ? source.versions.map((version) => ({ ...version, id: uid() })) : [],
     content: source?.content || "",
     createdAt: Date.now(),
     updatedAt: Date.now()
@@ -780,8 +820,7 @@ function bindEvents() {
   elements.saveVersion.addEventListener("click", saveCurrentVersion);
   elements.toggleVersionSidebar.addEventListener("click", () => {
     state.versionSidebarCollapsed = !state.versionSidebarCollapsed;
-    const prompt = selectedPrompt();
-    if (prompt) renderVersionPanel(prompt);
+    updateVersionSidebarState();
   });
   elements.addEditorColumn.addEventListener("click", addEditorColumn);
   elements.versionList.addEventListener("click", (event) => {
