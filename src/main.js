@@ -2,7 +2,8 @@ const { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, na
 const fs = require("fs/promises");
 const path = require("path");
 
-const SHORTCUT = "CommandOrControl+Shift+Space";
+const SHORTCUT = "Command+Shift+Space";
+const SHORTCUT_LABEL = "Shift+Cmd+Space";
 const TRAY_ICON_PNG =
   "iVBORw0KGgoAAAANSUhEUgAAACQAAAAkCAYAAADhAJiYAAAAZ0lEQVR4nO3TwQ0AIQwDQfpvGio4AU5MHJ1X4mvNI4zh3M+b4JNAUHDZmBCKhYFQbMw1qgUoGrxJ+R2R3TagsjsyCAWhGVQGkrshg3ag09JBX6MMUGhUDlRyPy9RUFIYFio1CYRzrVrJjxILrXl4EgAAAABJRU5ErkJggg==";
 
@@ -162,7 +163,7 @@ app.whenReady().then(async () => {
   tray.setToolTip("Prompt Dock");
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: `显示/隐藏 (${SHORTCUT})`, click: toggleWindow },
+      { label: `显示/隐藏 (${SHORTCUT_LABEL})`, click: toggleWindow },
       { label: "退出", click: () => {
         app.isQuiting = true;
         app.quit();
@@ -191,7 +192,7 @@ ipcMain.handle("prompts:load", async () => ({
   prompts: await readPrompts(),
   storePath,
   storeHistory,
-  shortcut: SHORTCUT
+  shortcut: SHORTCUT_LABEL
 }));
 
 ipcMain.handle("prompts:save", async (_event, prompts) => {

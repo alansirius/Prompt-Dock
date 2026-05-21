@@ -83,7 +83,8 @@ select:focus-visible {
 .shell {
   display: grid;
   grid-template-columns: var(--sidebar-width) 8px 1fr;
-  height: 100vh;
+  height: 100%;
+  min-height: 0;
 }
 
 .shell.sidebarCollapsed {
@@ -351,20 +352,38 @@ p {
 }
 
 .tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  display: grid;
+  gap: 7px;
 }
 
 .tag {
+  display: grid;
+  justify-items: start;
+  gap: 2px;
   max-width: 100%;
   min-height: 28px;
   padding: 5px 9px;
+  margin-left: calc(var(--tag-depth, 0) * 14px);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   color: var(--ink);
   background: var(--panel);
   font-size: 12px;
+  font-weight: 650;
+  text-align: left;
+}
+
+.tag span,
+.tag small {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag small {
+  color: var(--muted);
+  font-size: 10px;
   font-weight: 650;
 }
 
@@ -378,6 +397,10 @@ p {
   background: var(--accent);
   border-color: var(--accent);
   box-shadow: 0 6px 14px oklch(48.5% 0.095 190 / 0.14);
+}
+
+.tag.active small {
+  color: oklch(94% 0.018 190);
 }
 
 .tagContextMenu {
@@ -487,7 +510,92 @@ p {
 
 .main {
   display: grid;
-  grid-template-rows: 1fr;
+  grid-template-rows: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.appTabs,
+.tabShell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100vh;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.tabBar {
+  display: flex;
+  align-items: end;
+  gap: 6px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px 12px 0;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in oklch, var(--bg), var(--panel) 34%);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.tabButton {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 220px;
+  min-width: 92px;
+  height: 36px;
+  padding: 0 10px 0 12px;
+  border: 1px solid transparent;
+  border-bottom-color: transparent;
+  border-radius: 8px 8px 0 0;
+  color: var(--muted);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.tabButton:hover {
+  color: var(--ink);
+  background: var(--accent-wash);
+}
+
+.tabButton.active {
+  color: var(--ink);
+  border-color: var(--line);
+  border-bottom-color: var(--panel);
+  background: var(--panel);
+  box-shadow: 0 -1px 0 oklch(99.5% 0.006 86 / 0.72) inset;
+}
+
+.tabButton span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tabClose {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  place-items: center;
+  border-radius: 999px;
+  color: color-mix(in oklch, var(--muted), transparent 8%);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.tabClose:hover,
+.tabClose:focus-visible {
+  color: var(--danger);
+  background: var(--danger-soft);
+  outline: 0;
+}
+
+.tabPanel {
+  height: 100%;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -741,6 +849,60 @@ textarea:focus {
   color: var(--muted);
 }
 
+.tagInputWrap {
+  position: relative;
+  min-width: 0;
+}
+
+.tagSuggestions {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 12;
+  display: grid;
+  gap: 4px;
+  width: min(280px, 100%);
+  max-height: 190px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+  box-shadow: var(--shadow-soft);
+}
+
+.tagSuggestions[hidden] {
+  display: none;
+}
+
+.tagSuggestions button {
+  display: grid;
+  grid-template-columns: auto;
+  align-items: center;
+  min-height: 30px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  color: var(--ink);
+  background: transparent;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tagSuggestions button small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tagSuggestions button:hover {
+  color: var(--accent-strong);
+  background: var(--accent-wash);
+}
+
 .contentHeader {
   display: flex;
   align-items: center;
@@ -757,13 +919,11 @@ textarea:focus {
 }
 
 .editorDialog {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
   display: grid;
-  place-items: center;
-  padding: 26px;
-  background: oklch(25% 0.026 255 / 0.28);
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  background: var(--bg);
 }
 
 .editorDialog[hidden] {
@@ -772,37 +932,14 @@ textarea:focus {
 
 .editorDialogPanel {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  width: min(1180px, calc(100vw - 52px));
-  height: min(760px, calc(100vh - 52px));
+  grid-template-rows: minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
   overflow: hidden;
-  border: 1px solid color-mix(in oklch, var(--line), var(--panel) 30%);
-  border-radius: 14px;
+  border: 0;
+  border-radius: 0;
   background: var(--bg);
-  box-shadow: var(--shadow-soft);
-}
-
-.editorDialogHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 18px 22px;
-  border-bottom: 1px solid var(--line);
-  background: color-mix(in oklch, var(--bg), var(--panel) 54%);
-}
-
-.editorDialogHeader h2 {
-  margin: 0;
-  color: var(--ink);
-  font-size: 18px;
-  line-height: 1.2;
-}
-
-.editorDialogHeader p {
-  margin-top: 4px;
-  color: var(--muted);
-  font-size: 12px;
+  box-shadow: none;
 }
 
 .editorDialogBody {
@@ -811,19 +948,20 @@ textarea:focus {
   grid-template-columns: 248px minmax(0, 1fr);
   gap: 12px;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
   padding: 16px;
   transition: gap 160ms ease;
 }
 
 .editorDialogBody.versionSidebarCollapsed {
-  grid-template-columns: 0 minmax(0, 1fr);
-  gap: 0;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 8px;
 }
 
 .versionSidebar {
   position: relative;
   z-index: 2;
+  grid-column: 1;
   contain: layout paint;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -840,18 +978,14 @@ textarea:focus {
 }
 
 .versionSidebar.collapsed {
-  position: absolute;
-  top: 16px;
-  bottom: 16px;
-  left: 16px;
-  width: 0;
-  height: auto;
-  min-width: 0;
+  position: relative;
+  width: 40px;
+  height: 100%;
   overflow: visible;
   border-color: transparent;
   background: transparent;
   box-shadow: none;
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .versionSidebarHeader {
@@ -879,17 +1013,15 @@ textarea:focus {
 }
 
 .versionSidebar.collapsed .versionSidebarHeader {
-  display: block;
-  position: absolute;
-  top: 14px;
-  left: -18px;
-  width: 44px;
+  display: grid;
+  width: 40px;
   height: 44px;
   padding: 0;
+  place-items: center;
   overflow: visible;
   border-bottom: 0;
   background: transparent;
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .versionSidebar.collapsed .versionSidebarHeader > div {
@@ -1059,12 +1191,10 @@ textarea:focus {
 }
 
 .versionSidebar.collapsed .folderToggleButton {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 44px;
-  height: 44px;
-  min-height: 44px;
+  position: relative;
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
   margin: 0;
   border-color: color-mix(in oklch, var(--accent), var(--line) 30%);
   border-radius: 999px;
@@ -1073,7 +1203,7 @@ textarea:focus {
   box-shadow: 0 8px 20px oklch(25% 0.026 255 / 0.1);
   opacity: 0.9;
   pointer-events: auto;
-  transform: translateX(-14px);
+  transform: translateX(0);
 }
 
 .versionSidebar.collapsed .folderToggleButton:hover,

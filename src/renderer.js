@@ -6,10 +6,8 @@ const state = {
   query: "",
   storePath: "",
   saveTimer: null,
-  versionSidebarCollapsed: false,
-  editorColumns: [],
-  activeEditorColumnId: "",
-  columnDiffEnabled: false
+  activeTabId: "home",
+  editorTabs: []
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -25,16 +23,18 @@ const elements = {
   currentStore: $("#currentStore"),
   currentStorePath: $("#currentStorePath"),
   storeHistory: $("#storeHistory"),
+  tabBar: $("#tabBar"),
+  homeTabPanel: $("#homeTabPanel"),
   search: $("#search"),
   promptList: $("#promptList"),
   tagList: $("#tagList"),
   countLabel: $("#countLabel"),
   titleInput: $("#titleInput"),
   tagInput: $("#tagInput"),
+  tagSuggestions: $("#tagSuggestions"),
   openTextEditor: $("#openTextEditor"),
   editorDialog: $("#editorDialog"),
   editorDialogBody: $(".editorDialogBody"),
-  closeTextEditor: $("#closeTextEditor"),
   versionSidebar: $("#versionSidebar"),
   toggleVersionSidebar: $("#toggleVersionSidebar"),
   versionList: $("#versionList"),
@@ -55,11 +55,75 @@ function selectedPrompt() {
   return state.prompts.find((prompt) => prompt.id === state.selectedId) || null;
 }
 
+function activeEditorTab() {
+  return state.editorTabs.find((tab) => tab.id === state.activeTabId) || null;
+}
+
+function promptById(promptId) {
+  return state.prompts.find((prompt) => prompt.id === promptId) || null;
+}
+
+function activeEditorPrompt() {
+  const tab = activeEditorTab();
+  return tab ? promptById(tab.promptId) : null;
+}
+
+function createEditorTabState(promptId) {
+  const id = uid();
+  const columnId = uid();
+  return {
+    id,
+    promptId,
+    editorColumns: [{ id: columnId, versionId: "current" }],
+    activeEditorColumnId: columnId,
+    columnDiffEnabled: false,
+    versionSidebarCollapsed: false
+  };
+}
+
 function normalizeTags(value) {
   return value
     .split(/[,，]/)
-    .map((tag) => tag.trim())
+    .map(normalizeTagPath)
     .filter(Boolean);
+}
+
+function normalizeTagPath(value) {
+  return String(value || "")
+    .split(/[\/／]+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join("/");
+}
+
+function promptTags() {
+  return state.prompts.flatMap((prompt) => prompt.tags || []);
+}
+
+function tagAncestors(tag) {
+  const parts = normalizeTagPath(tag).split("/").filter(Boolean);
+  return parts.map((_, index) => parts.slice(0, index + 1).join("/"));
+}
+
+function visibleTags() {
+  return [...new Set(promptTags().flatMap(tagAncestors))]
+    .sort((a, b) => a.localeCompare(b, "zh-CN"));
+}
+
+function currentTagQuery(value) {
+  return String(value || "").split(/[,，]/).pop().trim();
+}
+
+function tagMatches(selectedTag, tag) {
+  return tag === selectedTag || tag.startsWith(`${selectedTag}/`);
+}
+
+function tagDepth(tag) {
+  return Math.max(0, tag.split("/").length - 1);
+}
+
+function tagName(tag) {
+  return tag.split("/").pop() || tag;
 }
 
 function versionLabel(version, index) {
@@ -235,7 +299,7 @@ function versionSearchText(prompt) {
 function promptMatches(prompt) {
   const haystack = `${prompt.title} ${(prompt.tags || []).join(" ")} ${prompt.content} ${versionSearchText(prompt)}`.toLowerCase();
   const queryOk = !state.query || haystack.includes(state.query.toLowerCase());
-  const tagOk = !state.tag || (prompt.tags || []).includes(state.tag);
+  const tagOk = !state.tag || (prompt.tags || []).some((tag) => tagMatches(state.tag, tag));
   const filterOk =
     state.filter === "all" ||
     (state.filter === "favorite" && prompt.favorite) ||
@@ -300,9 +364,8 @@ function applyLoadedStore(result, message) {
   state.selectedId = state.prompts[0]?.id || null;
   state.tag = "";
   state.storePath = result.storePath || "";
-  state.editorColumns = [];
-  state.activeEditorColumnId = "";
-  state.columnDiffEnabled = false;
+  state.activeTabId = "home";
+  state.editorTabs = [];
   renderStoreHistory(result.storeHistory || []);
   elements.status.textContent = message;
   render();
@@ -323,13 +386,13 @@ function closeTagMenu() {
 }
 
 function deleteTag(tag) {
-  const confirmed = confirm(`删除标签「${tag}」？该标签会从所有提示词中移除。`);
+  const confirmed = confirm(`删除标签「${tag}」？该标签及其子标签会从所有提示词中移除。`);
   if (!confirmed) return;
 
   state.prompts.forEach((prompt) => {
     const tags = prompt.tags || [];
-    if (!tags.includes(tag)) return;
-    prompt.tags = tags.filter((item) => item !== tag);
+    if (!tags.some((item) => tagMatches(tag, item))) return;
+    prompt.tags = tags.filter((item) => !tagMatches(tag, item));
     prompt.updatedAt = Date.now();
   });
 
@@ -358,14 +421,18 @@ function showTagMenu(tag, x, y) {
 }
 
 function renderTags() {
-  const tags = [...new Set(state.prompts.flatMap((prompt) => prompt.tags || []))].sort((a, b) => a.localeCompare(b, "zh-CN"));
+  const tags = visibleTags();
   if (state.tag && !tags.includes(state.tag)) state.tag = "";
   elements.tagList.innerHTML = "";
 
   tags.forEach((tag) => {
     const button = document.createElement("button");
     button.className = `tag${state.tag === tag ? " active" : ""}`;
-    button.textContent = tag;
+    button.style.setProperty("--tag-depth", String(tagDepth(tag)));
+    button.innerHTML = `
+      <span>${escapeHtml(tagName(tag))}</span>
+      ${tagDepth(tag) ? `<small>${escapeHtml(tag)}</small>` : ""}
+    `;
     button.addEventListener("click", () => {
       state.tag = state.tag === tag ? "" : tag;
       render();
@@ -377,6 +444,52 @@ function renderTags() {
     });
     elements.tagList.appendChild(button);
   });
+}
+
+function hideTagSuggestions() {
+  elements.tagSuggestions.hidden = true;
+  elements.tagSuggestions.innerHTML = "";
+}
+
+function renderTagSuggestions() {
+  const query = currentTagQuery(elements.tagInput.value);
+  const selectedTags = normalizeTags(elements.tagInput.value);
+  const tags = visibleTags();
+  const lowerQuery = query.toLowerCase();
+
+  let candidates = tags.filter((tag) => !selectedTags.includes(tag));
+  if (query) {
+    candidates = candidates.filter((tag) => tag.toLowerCase().includes(lowerQuery));
+  }
+  const matches = candidates.slice(0, 8);
+
+  if (!matches.length || elements.tagInput.disabled) {
+    hideTagSuggestions();
+    return;
+  }
+
+  elements.tagSuggestions.innerHTML = matches.map((tag) => {
+    const depth = tagDepth(tag);
+    const indent = depth ? "margin-left: " + (depth * 14) + "px" : "";
+    return `<button type="button" data-tag="${escapeHtml(tag)}" style="${indent}">
+      <span>${escapeHtml(tagName(tag))}</span>
+      ${depth ? `<small>${escapeHtml(tag)}</small>` : ""}
+    </button>`;
+  }).join("");
+  elements.tagSuggestions.hidden = false;
+}
+
+function applyTagSuggestion(tag) {
+  const value = elements.tagInput.value;
+  const delimiterIndex = Math.max(value.lastIndexOf(","), value.lastIndexOf("，"));
+  const prefix = delimiterIndex >= 0 ? `${value.slice(0, delimiterIndex + 1)} ` : "";
+  const nextValue = `${prefix}${tag}, `;
+  elements.tagInput.value = nextValue;
+  updateSelected((prompt) => {
+    prompt.tags = normalizeTags(nextValue);
+  });
+  hideTagSuggestions();
+  elements.tagInput.focus();
 }
 
 function renderList() {
@@ -423,50 +536,49 @@ function renderEditor() {
     elements.versionList.innerHTML = "";
     elements.editorColumns.innerHTML = "";
     elements.editorDialogBody.classList.remove("versionSidebarCollapsed");
-    state.editorColumns = [];
-    state.activeEditorColumnId = "";
     elements.contentInput.value = "";
     elements.favoriteButton.textContent = "☆";
-    closeTextEditor();
     return;
   }
 
   elements.titleInput.value = prompt.title || "";
   elements.tagInput.value = (prompt.tags || []).join(", ");
-  renderVersionPanel(prompt);
   elements.contentInput.value = prompt.content || "";
   elements.favoriteButton.textContent = prompt.favorite ? "★" : "☆";
 }
 
 function renderVersionPanel(prompt) {
+  const tab = activeEditorTab();
+  if (!tab) return;
   ensureVersions(prompt);
   updateVersionSidebarState();
 
-  if (!state.editorColumns.length) {
+  if (!tab.editorColumns.length) {
     const id = uid();
-    state.editorColumns = [{ id, versionId: "current" }];
-    state.activeEditorColumnId = id;
+    tab.editorColumns = [{ id, versionId: "current" }];
+    tab.activeEditorColumnId = id;
   }
 
-  state.editorColumns = state.editorColumns.slice(0, MAX_EDITOR_COLUMNS).map((column) => {
+  tab.editorColumns = tab.editorColumns.slice(0, MAX_EDITOR_COLUMNS).map((column) => {
     const exists = column.versionId === "current" || prompt.versions.some((version) => version.id === column.versionId);
     return exists ? column : { ...column, versionId: "current" };
   });
-  if (!state.editorColumns.some((column) => column.id === state.activeEditorColumnId)) {
-    state.activeEditorColumnId = state.editorColumns[0]?.id || "";
+  if (!tab.editorColumns.some((column) => column.id === tab.activeEditorColumnId)) {
+    tab.activeEditorColumnId = tab.editorColumns[0]?.id || "";
   }
-  if (state.editorColumns.length !== 2) state.columnDiffEnabled = false;
+  if (tab.editorColumns.length !== 2) tab.columnDiffEnabled = false;
 
   renderVersionList(prompt);
   renderEditorColumns(prompt);
 }
 
 function updateVersionSidebarState() {
-  elements.editorDialogBody.classList.toggle("versionSidebarCollapsed", state.versionSidebarCollapsed);
-  elements.versionSidebar.classList.toggle("collapsed", state.versionSidebarCollapsed);
-  elements.toggleVersionSidebar.title = state.versionSidebarCollapsed ? "展开版本侧边栏" : "收缩版本侧边栏";
-  elements.toggleVersionSidebar.setAttribute("aria-label", state.versionSidebarCollapsed ? "展开版本侧边栏" : "收缩版本侧边栏");
-  elements.toggleVersionSidebar.setAttribute("aria-expanded", String(!state.versionSidebarCollapsed));
+  const collapsed = activeEditorTab()?.versionSidebarCollapsed || false;
+  elements.editorDialogBody.classList.toggle("versionSidebarCollapsed", collapsed);
+  elements.versionSidebar.classList.toggle("collapsed", collapsed);
+  elements.toggleVersionSidebar.title = collapsed ? "展开版本侧边栏" : "收缩版本侧边栏";
+  elements.toggleVersionSidebar.setAttribute("aria-label", collapsed ? "展开版本侧边栏" : "收缩版本侧边栏");
+  elements.toggleVersionSidebar.setAttribute("aria-expanded", String(!collapsed));
 }
 
 function versionContent(prompt, versionId) {
@@ -475,6 +587,8 @@ function versionContent(prompt, versionId) {
 }
 
 function renderVersionList(prompt) {
+  const tab = activeEditorTab();
+  if (!tab) return;
   const items = [
     {
       id: "current",
@@ -490,7 +604,7 @@ function renderVersionList(prompt) {
     }))
   ];
 
-  const activeColumn = state.editorColumns.find((column) => column.id === state.activeEditorColumnId) || state.editorColumns[0];
+  const activeColumn = tab.editorColumns.find((column) => column.id === tab.activeEditorColumnId) || tab.editorColumns[0];
   elements.versionList.innerHTML = items.map((item) => `
     <button class="versionListItem${activeColumn?.versionId === item.id ? " active" : ""}" type="button" data-version-id="${escapeHtml(item.id)}">
       <span class="versionItemTitle">${escapeHtml(item.title)}</span>
@@ -502,6 +616,8 @@ function renderVersionList(prompt) {
 }
 
 function renderEditorColumns(prompt) {
+  const tab = activeEditorTab();
+  if (!tab) return;
   const versionOptions = [
     `<option value="current">当前内容</option>`,
     ...prompt.versions.map((version, index) => {
@@ -511,21 +627,21 @@ function renderEditorColumns(prompt) {
     })
   ].join("");
 
-  elements.editorColumns.style.setProperty("--editor-column-count", String(state.editorColumns.length || 1));
-  elements.addEditorColumn.disabled = state.editorColumns.length >= MAX_EDITOR_COLUMNS && state.columnDiffEnabled;
-  elements.addEditorColumn.title = state.editorColumns.length >= MAX_EDITOR_COLUMNS ? "已插入比较列" : "插入比较列";
-  elements.addEditorColumn.textContent = state.editorColumns.length >= MAX_EDITOR_COLUMNS ? "已插入比较列" : "插入比较列";
+  elements.editorColumns.style.setProperty("--editor-column-count", String(tab.editorColumns.length || 1));
+  elements.addEditorColumn.disabled = tab.editorColumns.length >= MAX_EDITOR_COLUMNS && tab.columnDiffEnabled;
+  elements.addEditorColumn.title = tab.editorColumns.length >= MAX_EDITOR_COLUMNS ? "已插入比较列" : "插入比较列";
+  elements.addEditorColumn.textContent = tab.editorColumns.length >= MAX_EDITOR_COLUMNS ? "已插入比较列" : "插入比较列";
 
-  elements.editorColumns.innerHTML = state.editorColumns.map((column, index) => {
+  elements.editorColumns.innerHTML = tab.editorColumns.map((column, index) => {
     const content = versionContent(prompt, column.versionId);
-    const previousColumn = state.editorColumns[index - 1];
+    const previousColumn = tab.editorColumns[index - 1];
     const isCurrent = column.versionId === "current";
-    const isActive = column.id === state.activeEditorColumnId;
-    const stateText = state.columnDiffEnabled && previousColumn ? "对比左列" : isCurrent ? "可编辑" : "只读";
-    const removeButton = state.editorColumns.length > 1
+    const isActive = column.id === tab.activeEditorColumnId;
+    const stateText = tab.columnDiffEnabled && previousColumn ? "对比左列" : isCurrent ? "可编辑" : "只读";
+    const removeButton = tab.editorColumns.length > 1
       ? `<button class="iconButton smallIconButton removeColumn" type="button" data-column-id="${column.id}" title="移除列">×</button>`
       : "";
-    const body = state.columnDiffEnabled && previousColumn
+    const body = tab.columnDiffEnabled && previousColumn
       ? `<pre class="editorColumnDiff">${buildInlineDiff(versionContent(prompt, previousColumn.versionId), content)}</pre>`
       : `<textarea class="editorColumnTextarea" spellcheck="false" data-column-id="${column.id}" ${isCurrent ? "" : "readonly"}>${escapeText(content)}</textarea>`;
 
@@ -544,14 +660,15 @@ function renderEditorColumns(prompt) {
   }).join("");
 
   elements.editorColumns.querySelectorAll(".editorColumnSelect").forEach((select) => {
-    const column = state.editorColumns.find((item) => item.id === select.dataset.columnId);
+    const column = tab.editorColumns.find((item) => item.id === select.dataset.columnId);
     select.value = column?.versionId || "current";
   });
 }
 
 function deleteVersion(versionId) {
-  const prompt = selectedPrompt();
-  if (!prompt || versionId === "current") return;
+  const prompt = activeEditorPrompt();
+  const tab = activeEditorTab();
+  if (!prompt || !tab || versionId === "current") return;
   const version = prompt.versions.find((item) => item.id === versionId);
   if (!version) return;
 
@@ -559,7 +676,7 @@ function deleteVersion(versionId) {
   if (!confirmed) return;
 
   prompt.versions = prompt.versions.filter((item) => item.id !== versionId);
-  state.editorColumns = state.editorColumns.map((column) => (
+  tab.editorColumns = tab.editorColumns.map((column) => (
     column.versionId === versionId ? { ...column, versionId: "current" } : column
   ));
   prompt.updatedAt = Date.now();
@@ -569,45 +686,49 @@ function deleteVersion(versionId) {
 }
 
 function setActiveColumnVersion(versionId) {
-  const prompt = selectedPrompt();
-  if (!prompt) return;
-  const column = state.editorColumns.find((item) => item.id === state.activeEditorColumnId) || state.editorColumns[0];
+  const prompt = activeEditorPrompt();
+  const tab = activeEditorTab();
+  if (!prompt || !tab) return;
+  const column = tab.editorColumns.find((item) => item.id === tab.activeEditorColumnId) || tab.editorColumns[0];
   if (!column) return;
   column.versionId = versionId;
-  state.activeEditorColumnId = column.id;
+  tab.activeEditorColumnId = column.id;
   renderVersionPanel(prompt);
 }
 
 function addEditorColumn() {
-  const prompt = selectedPrompt();
-  if (!prompt) return;
+  const prompt = activeEditorPrompt();
+  const tab = activeEditorTab();
+  if (!prompt || !tab) return;
 
-  if (state.editorColumns.length < MAX_EDITOR_COLUMNS) {
+  if (tab.editorColumns.length < MAX_EDITOR_COLUMNS) {
     const latestVersion = prompt.versions[prompt.versions.length - 1];
     const column = { id: uid(), versionId: latestVersion?.id || "current" };
-    state.editorColumns.push(column);
-    state.activeEditorColumnId = column.id;
+    tab.editorColumns.push(column);
+    tab.activeEditorColumnId = column.id;
   }
-  if (state.editorColumns.length === MAX_EDITOR_COLUMNS) {
-    state.columnDiffEnabled = true;
+  if (tab.editorColumns.length === MAX_EDITOR_COLUMNS) {
+    tab.columnDiffEnabled = true;
   }
   renderVersionPanel(prompt);
 }
 
 function removeEditorColumn(columnId) {
-  const prompt = selectedPrompt();
-  if (!prompt || state.editorColumns.length <= 1) return;
-  state.editorColumns = state.editorColumns.filter((column) => column.id !== columnId);
-  if (!state.editorColumns.some((column) => column.id === state.activeEditorColumnId)) {
-    state.activeEditorColumnId = state.editorColumns[0]?.id || "";
+  const prompt = activeEditorPrompt();
+  const tab = activeEditorTab();
+  if (!prompt || !tab || tab.editorColumns.length <= 1) return;
+  tab.editorColumns = tab.editorColumns.filter((column) => column.id !== columnId);
+  if (!tab.editorColumns.some((column) => column.id === tab.activeEditorColumnId)) {
+    tab.activeEditorColumnId = tab.editorColumns[0]?.id || "";
   }
-  if (state.editorColumns.length !== 2) state.columnDiffEnabled = false;
+  if (tab.editorColumns.length !== 2) tab.columnDiffEnabled = false;
   renderVersionPanel(prompt);
 }
 
 function saveCurrentVersion() {
-  const prompt = selectedPrompt();
-  if (!prompt) return;
+  const prompt = activeEditorPrompt();
+  const tab = activeEditorTab();
+  if (!prompt || !tab) return;
   if (!Array.isArray(prompt.versions)) prompt.versions = [];
 
   const version = {
@@ -621,10 +742,10 @@ function saveCurrentVersion() {
   prompt.updatedAt = Date.now();
   elements.versionNameInput.value = "";
   scheduleSave();
-  if (state.editorColumns.length) {
-    const column = state.editorColumns.find((item) => item.id === state.activeEditorColumnId) || state.editorColumns[state.editorColumns.length - 1];
+  if (tab.editorColumns.length) {
+    const column = tab.editorColumns.find((item) => item.id === tab.activeEditorColumnId) || tab.editorColumns[tab.editorColumns.length - 1];
     column.versionId = version.id;
-    state.activeEditorColumnId = column.id;
+    tab.activeEditorColumnId = column.id;
   }
   renderVersionPanel(prompt);
   elements.status.textContent = `已保存版本「${version.label ? `${version.label} · ` : ""}${version.name}」`;
@@ -633,18 +754,26 @@ function saveCurrentVersion() {
 function openTextEditor() {
   const prompt = selectedPrompt();
   if (!prompt) return;
-  if (!state.editorColumns.length) {
-    const id = uid();
-    state.editorColumns = [{ id, versionId: "current" }];
-    state.activeEditorColumnId = id;
-  }
-  renderVersionPanel(prompt);
-  elements.editorDialog.hidden = false;
+  const tab = createEditorTabState(prompt.id);
+  state.editorTabs.push(tab);
+  state.activeTabId = tab.id;
+  render();
   elements.editorColumns.querySelector(".editorColumnTextarea:not([readonly])")?.focus();
 }
 
 function closeTextEditor() {
-  elements.editorDialog.hidden = true;
+  const tab = activeEditorTab();
+  if (!tab) {
+    state.activeTabId = "home";
+    render();
+    return;
+  }
+
+  const index = state.editorTabs.findIndex((item) => item.id === tab.id);
+  state.editorTabs = state.editorTabs.filter((item) => item.id !== tab.id);
+  const nextTab = state.editorTabs[index] || state.editorTabs[index - 1];
+  state.activeTabId = nextTab?.id || "home";
+  render();
 }
 
 function toggleSidebar() {
@@ -714,6 +843,43 @@ function bindResizableColumns() {
   });
 }
 
+function renderTabs() {
+  state.editorTabs = state.editorTabs.filter((tab) => promptById(tab.promptId));
+  if (state.activeTabId !== "home" && !activeEditorTab()) state.activeTabId = "home";
+
+  const tabs = [
+    { id: "home", title: "首页", closeable: false },
+    ...state.editorTabs.map((tab) => {
+      const prompt = promptById(tab.promptId);
+      return {
+        id: tab.id,
+        title: prompt?.title || "未命名提示词",
+        closeable: true
+      };
+    })
+  ];
+
+  elements.tabBar.innerHTML = tabs.map((tab) => `
+    <button class="tabButton${state.activeTabId === tab.id ? " active" : ""}" type="button" data-tab-id="${escapeHtml(tab.id)}" title="${escapeHtml(tab.title)}">
+      <span>${escapeHtml(tab.title)}</span>
+      ${tab.closeable ? `<span class="tabClose" role="button" tabindex="0" data-tab-id="${escapeHtml(tab.id)}" title="关闭标签" aria-label="关闭标签">×</span>` : ""}
+    </button>
+  `).join("");
+}
+
+function renderActiveTab() {
+  const tab = activeEditorTab();
+  const prompt = activeEditorPrompt();
+  const isHome = state.activeTabId === "home" || !tab || !prompt;
+
+  elements.homeTabPanel.hidden = !isHome;
+  elements.editorDialog.hidden = isHome;
+  if (isHome) return;
+
+  state.selectedId = prompt.id;
+  renderVersionPanel(prompt);
+}
+
 function render() {
   if (!selectedPrompt() && state.prompts.length) {
     const firstVisible = visiblePrompts()[0] || state.prompts[0];
@@ -722,6 +888,8 @@ function render() {
   renderTags();
   renderList();
   renderEditor();
+  renderTabs();
+  renderActiveTab();
 }
 
 function escapeHtml(value) {
@@ -741,6 +909,7 @@ function updateSelected(mutator) {
   scheduleSave();
   renderTags();
   renderList();
+  renderTabs();
 }
 
 function createPrompt(source) {
@@ -787,9 +956,28 @@ function bindEvents() {
     switchStore(() => window.promptDock.chooseStore(), "已切换数据源");
   });
   elements.openTextEditor.addEventListener("click", openTextEditor);
-  elements.closeTextEditor.addEventListener("click", closeTextEditor);
-  elements.editorDialog.addEventListener("click", (event) => {
-    if (event.target === elements.editorDialog) closeTextEditor();
+  elements.tabBar.addEventListener("click", (event) => {
+    const closeButton = event.target.closest(".tabClose");
+    if (closeButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      state.activeTabId = closeButton.dataset.tabId;
+      closeTextEditor();
+      return;
+    }
+
+    const button = event.target.closest(".tabButton");
+    if (!button) return;
+    state.activeTabId = button.dataset.tabId;
+    render();
+  });
+  elements.tabBar.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const closeButton = event.target.closest(".tabClose");
+    if (!closeButton) return;
+    event.preventDefault();
+    state.activeTabId = closeButton.dataset.tabId;
+    closeTextEditor();
   });
   $("#newPrompt").addEventListener("click", () => createPrompt());
   $("#duplicatePrompt").addEventListener("click", () => createPrompt(selectedPrompt()));
@@ -812,14 +1000,30 @@ function bindEvents() {
   });
 
   elements.tagInput.addEventListener("input", (event) => {
+    const tags = normalizeTags(event.target.value);
     updateSelected((prompt) => {
-      prompt.tags = normalizeTags(event.target.value);
+      prompt.tags = tags;
     });
+    renderTagSuggestions();
+  });
+  elements.tagInput.addEventListener("focus", renderTagSuggestions);
+  elements.tagInput.addEventListener("blur", () => {
+    setTimeout(hideTagSuggestions, 120);
+  });
+  elements.tagSuggestions.addEventListener("mousedown", (event) => {
+    event.preventDefault();
+  });
+  elements.tagSuggestions.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-tag]");
+    if (!button) return;
+    applyTagSuggestion(button.dataset.tag);
   });
 
   elements.saveVersion.addEventListener("click", saveCurrentVersion);
   elements.toggleVersionSidebar.addEventListener("click", () => {
-    state.versionSidebarCollapsed = !state.versionSidebarCollapsed;
+    const tab = activeEditorTab();
+    if (!tab) return;
+    tab.versionSidebarCollapsed = !tab.versionSidebarCollapsed;
     updateVersionSidebarState();
   });
   elements.addEditorColumn.addEventListener("click", addEditorColumn);
@@ -848,7 +1052,8 @@ function bindEvents() {
       prompt.content = event.target.value;
     });
     const prompt = selectedPrompt();
-    if (prompt && !elements.editorDialog.hidden && state.editorColumns.some((column) => column.versionId === "current")) {
+    const tab = activeEditorTab();
+    if (prompt && activeEditorPrompt()?.id === prompt.id && tab?.editorColumns.some((column) => column.versionId === "current")) {
       renderEditorColumns(prompt);
     }
   });
@@ -863,29 +1068,38 @@ function bindEvents() {
     if (event.target.closest("select, button, textarea")) return;
     const column = event.target.closest(".editorColumn");
     if (!column) return;
-    state.activeEditorColumnId = column.dataset.columnId;
-    const prompt = selectedPrompt();
-    if (prompt) renderVersionPanel(prompt);
+    const prompt = activeEditorPrompt();
+    const tab = activeEditorTab();
+    if (prompt && tab) {
+      tab.activeEditorColumnId = column.dataset.columnId;
+      renderVersionPanel(prompt);
+    }
   });
 
   elements.editorColumns.addEventListener("change", (event) => {
     if (!event.target.matches(".editorColumnSelect")) return;
-    const column = state.editorColumns.find((item) => item.id === event.target.dataset.columnId);
-    const prompt = selectedPrompt();
-    if (!column || !prompt) return;
+    const tab = activeEditorTab();
+    const column = tab?.editorColumns.find((item) => item.id === event.target.dataset.columnId);
+    const prompt = activeEditorPrompt();
+    if (!column || !prompt || !tab) return;
     column.versionId = event.target.value;
-    state.activeEditorColumnId = column.id;
+    tab.activeEditorColumnId = column.id;
     renderVersionPanel(prompt);
   });
 
   elements.editorColumns.addEventListener("input", (event) => {
     if (!event.target.matches(".editorColumnTextarea")) return;
-    const column = state.editorColumns.find((item) => item.id === event.target.dataset.columnId);
+    const tab = activeEditorTab();
+    const column = tab?.editorColumns.find((item) => item.id === event.target.dataset.columnId);
     if (!column || column.versionId !== "current") return;
-    updateSelected((prompt) => {
-      prompt.content = event.target.value;
-    });
-    elements.contentInput.value = event.target.value;
+    const prompt = activeEditorPrompt();
+    if (!prompt) return;
+    prompt.content = event.target.value;
+    prompt.updatedAt = Date.now();
+    if (prompt.id === state.selectedId) elements.contentInput.value = event.target.value;
+    scheduleSave();
+    renderTags();
+    renderList();
   });
 
   elements.favoriteButton.addEventListener("click", () => {
@@ -901,6 +1115,8 @@ function bindEvents() {
     const confirmed = confirm(`删除「${prompt.title || "未命名提示词"}」？`);
     if (!confirmed) return;
     state.prompts = state.prompts.filter((item) => item.id !== prompt.id);
+    state.editorTabs = state.editorTabs.filter((tab) => tab.promptId !== prompt.id);
+    if (state.activeTabId !== "home" && !activeEditorTab()) state.activeTabId = "home";
     state.selectedId = state.prompts[0]?.id || null;
     scheduleSave();
     render();
