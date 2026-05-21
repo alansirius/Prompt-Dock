@@ -74,35 +74,134 @@ function escapeText(value) {
   return escapeHtml(value || "");
 }
 
-function buildInlineDiff(baseText, targetText) {
-  const base = String(baseText || "").split("\n");
-  const target = String(targetText || "").split("\n");
-  const table = Array.from({ length: base.length + 1 }, () => Array(target.length + 1).fill(0));
+function splitDiffLines(value) {
+  const text = String(value ?? "");
+  return text ? text.split("\n") : [];
+}
 
-  for (let i = base.length - 1; i >= 0; i -= 1) {
-    for (let j = target.length - 1; j >= 0; j -= 1) {
-      table[i][j] = base[i] === target[j] ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1]);
+function tokenizeDiffText(value) {
+  return String(value).match(/(\s+|[A-Za-z0-9_]+|[\u4e00-\u9fff]|[^\sA-Za-z0-9_\u4e00-\u9fff])/g) || [];
+}
+
+function buildSequenceDiff(base, target, includeMarkers = true) {
+  let prefixLength = 0;
+  while (
+    prefixLength < base.length &&
+    prefixLength < target.length &&
+    base[prefixLength] === target[prefixLength]
+  ) {
+    prefixLength += 1;
+  }
+
+  let suffixLength = 0;
+  while (
+    suffixLength < base.length - prefixLength &&
+    suffixLength < target.length - prefixLength &&
+    base[base.length - 1 - suffixLength] === target[target.length - 1 - suffixLength]
+  ) {
+    suffixLength += 1;
+  }
+
+  const baseMiddle = base.slice(prefixLength, base.length - suffixLength);
+  const targetMiddle = target.slice(prefixLength, target.length - suffixLength);
+  const table = Array.from({ length: baseMiddle.length + 1 }, () => Array(targetMiddle.length + 1).fill(0));
+
+  for (let i = baseMiddle.length - 1; i >= 0; i -= 1) {
+    for (let j = targetMiddle.length - 1; j >= 0; j -= 1) {
+      table[i][j] = baseMiddle[i] === targetMiddle[j] ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1]);
     }
   }
 
-  const rows = [];
+  const rows = base.slice(0, prefixLength).map((text) => ({ text, type: "same" }));
   let i = 0;
   let j = 0;
-  while (i < base.length || j < target.length) {
-    if (i < base.length && j < target.length && base[i] === target[j]) {
-      rows.push({ text: target[j], type: "same" });
+  while (i < baseMiddle.length || j < targetMiddle.length) {
+    if (i < baseMiddle.length && j < targetMiddle.length && baseMiddle[i] === targetMiddle[j]) {
+      rows.push({ text: targetMiddle[j], type: "same" });
       i += 1;
       j += 1;
-    } else if (j >= target.length || (i < base.length && table[i + 1][j] >= table[i][j + 1])) {
-      rows.push({ text: `- ${base[i]}`, type: "removed" });
-      i += 1;
+    } else if (i >= baseMiddle.length || (j < targetMiddle.length && table[i][j + 1] > table[i + 1][j])) {
+      rows.push({ text: includeMarkers ? `+ ${targetMiddle[j]}` : targetMiddle[j], type: "added" });
+      j += 1;
     } else {
-      rows.push({ text: `+ ${target[j]}`, type: "added" });
-      j += 1;
+      rows.push({ text: includeMarkers ? `- ${baseMiddle[i]}` : baseMiddle[i], type: "removed" });
+      i += 1;
     }
   }
 
-  return rows.map((row) => `<span class="${row.type}">${escapeText(row.text) || " "}</span>`).join("\n");
+  base.slice(base.length - suffixLength).forEach((text) => {
+    rows.push({ text, type: "same" });
+  });
+
+  return rows;
+}
+
+function renderInlineChange(prefix, text, highlightType, counterpart) {
+  const tokens = tokenizeDiffText(text);
+  const otherTokens = tokenizeDiffText(counterpart);
+  const parts = highlightType === "added"
+    ? buildSequenceDiff(otherTokens, tokens, false)
+    : buildSequenceDiff(tokens, otherTokens, false);
+  const html = parts
+    .filter((part) => part.type === "same" || part.type === highlightType)
+    .map((part) => {
+      const value = escapeText(part.text);
+      if (part.type === "same") return value;
+      return `<mark>${value || " "}</mark>`;
+    })
+    .join("");
+
+  return `${prefix} ${html || " "}`;
+}
+
+function renderDiffRows(rows) {
+  const htmlRows = [];
+
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
+
+    if (row.type === "removed" || row.type === "added") {
+      const removedRows = [];
+      const addedRows = [];
+      while (index < rows.length && (rows[index].type === "removed" || rows[index].type === "added")) {
+        if (rows[index].type === "removed") {
+          removedRows.push(rows[index].text.slice(2));
+        } else {
+          addedRows.push(rows[index].text.slice(2));
+        }
+        index += 1;
+      }
+      index -= 1;
+
+      const pairs = Math.max(removedRows.length, addedRows.length);
+      for (let pairIndex = 0; pairIndex < pairs; pairIndex += 1) {
+        const removedText = removedRows[pairIndex];
+        const addedText = addedRows[pairIndex];
+        if (removedText !== undefined && addedText !== undefined) {
+          htmlRows.push(`<span class="removed">${renderInlineChange("-", removedText, "removed", addedText)}</span>`);
+          htmlRows.push(`<span class="added">${renderInlineChange("+", addedText, "added", removedText)}</span>`);
+        } else if (removedText !== undefined) {
+          htmlRows.push(`<span class="removed">${escapeText(`- ${removedText}`) || " "}</span>`);
+        } else {
+          htmlRows.push(`<span class="added">${escapeText(`+ ${addedText}`) || " "}</span>`);
+        }
+      }
+      continue;
+    }
+
+    htmlRows.push(`<span class="${row.type}">${escapeText(row.text) || " "}</span>`);
+  }
+
+  return htmlRows.join("\n");
+}
+
+function buildInlineDiff(baseText, targetText) {
+  const base = splitDiffLines(baseText);
+  const target = splitDiffLines(targetText);
+
+  if (!base.length && !target.length) return "";
+
+  return renderDiffRows(buildSequenceDiff(base, target));
 }
 
 function promptMatches(prompt) {

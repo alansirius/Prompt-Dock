@@ -1146,6 +1146,20 @@ textarea:focus {
   background: var(--accent-soft);
 }
 
+.editorColumnDiff mark {
+  padding: 0 2px;
+  border-radius: 3px;
+  color: inherit;
+}
+
+.editorColumnDiff .removed mark {
+  background: oklch(51% 0.12 26 / 0.18);
+}
+
+.editorColumnDiff .added mark {
+  background: oklch(48.5% 0.095 190 / 0.2);
+}
+
 .versionNameInput {
   height: 36px;
   padding: 0 11px;
