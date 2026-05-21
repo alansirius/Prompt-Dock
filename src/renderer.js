@@ -754,6 +754,12 @@ function saveCurrentVersion() {
 function openTextEditor() {
   const prompt = selectedPrompt();
   if (!prompt) return;
+  const existingTab = state.editorTabs.find((tab) => tab.promptId === prompt.id);
+  if (existingTab) {
+    state.activeTabId = existingTab.id;
+    render();
+    return;
+  }
   const tab = createEditorTabState(prompt.id);
   state.editorTabs.push(tab);
   state.activeTabId = tab.id;

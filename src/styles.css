@@ -945,7 +945,7 @@ textarea:focus {
 .editorDialogBody {
   position: relative;
   display: grid;
-  grid-template-columns: 248px minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 12px;
   min-height: 0;
   overflow: visible;
@@ -954,7 +954,6 @@ textarea:focus {
 }
 
 .editorDialogBody.versionSidebarCollapsed {
-  grid-template-columns: 40px minmax(0, 1fr);
   gap: 8px;
 }
 
@@ -962,10 +961,9 @@ textarea:focus {
   position: relative;
   z-index: 2;
   grid-column: 1;
-  contain: layout paint;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  width: 100%;
+  width: 248px;
   height: 100%;
   min-width: 0;
   overflow: hidden;
@@ -974,7 +972,7 @@ textarea:focus {
   background: var(--panel);
   box-shadow: var(--shadow-card);
   transform-origin: left center;
-  transition: opacity 180ms ease, border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease, transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: width 220ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease, border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
 }
 
 .versionSidebar.collapsed {
@@ -1024,8 +1022,13 @@ textarea:focus {
   pointer-events: auto;
 }
 
+.versionSidebarHeader > div {
+  transition: opacity 120ms ease;
+}
+
 .versionSidebar.collapsed .versionSidebarHeader > div {
-  display: none;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .versionSidebar.collapsed .versionList {
