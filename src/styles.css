@@ -948,9 +948,8 @@ textarea:focus {
   grid-template-columns: auto minmax(0, 1fr);
   gap: 12px;
   min-height: 0;
-  overflow: visible;
+  overflow: hidden;
   padding: 16px;
-  transition: gap 160ms ease;
 }
 
 .editorDialogBody.versionSidebarCollapsed {
@@ -972,7 +971,12 @@ textarea:focus {
   background: var(--panel);
   box-shadow: var(--shadow-card);
   transform-origin: left center;
-  transition: width 220ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease, border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+  will-change: width;
+  transition: width 200ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease, border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+}
+
+.versionSidebar:not(.collapsed) {
+  will-change: auto;
 }
 
 .versionSidebar.collapsed {
@@ -1023,18 +1027,20 @@ textarea:focus {
 }
 
 .versionSidebarHeader > div {
-  transition: opacity 120ms ease;
+  transition: opacity 180ms ease 120ms;
 }
 
 .versionSidebar.collapsed .versionSidebarHeader > div {
   opacity: 0;
   pointer-events: none;
+  transition: opacity 80ms ease;
 }
 
 .versionSidebar.collapsed .versionList {
   pointer-events: none;
   opacity: 0;
   transform: translateX(-10px);
+  transition: opacity 100ms ease, transform 120ms ease;
 }
 
 .versionList {
@@ -1044,7 +1050,7 @@ textarea:focus {
   min-height: 0;
   padding: 12px;
   overflow: auto;
-  transition: opacity 180ms ease, transform 220ms ease;
+  transition: opacity 200ms ease 120ms, transform 200ms ease 80ms;
 }
 
 .versionListItem {
@@ -1229,6 +1235,7 @@ textarea:focus {
   gap: 12px;
   min-width: 0;
   min-height: 0;
+  contain: layout style;
 }
 
 .editorToolbar {
