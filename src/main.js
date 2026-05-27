@@ -1,9 +1,13 @@
-const { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, Tray } = require("electron");
+const { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, shell, Tray } = require("electron");
 const fs = require("fs/promises");
+const https = require("https");
 const path = require("path");
 
 const SHORTCUT = "Command+Shift+Space";
 const SHORTCUT_LABEL = "Shift+Cmd+Space";
+const UPDATE_REPOSITORY = "alansirius/Prompt-Dock";
+const UPDATE_RELEASES_URL = `https://github.com/${UPDATE_REPOSITORY}/releases`;
+const UPDATE_API_BASE = `https://api.github.com/repos/${UPDATE_REPOSITORY}`;
 const TRAY_ICON_PNG =
   "iVBORw0KGgoAAAANSUhEUgAAACQAAAAkCAYAAADhAJiYAAAAZ0lEQVR4nO3TwQ0AIQwDQfpvGio4AU5MHJ1X4mvNI4zh3M+b4JNAUHDZmBCKhYFQbMw1qgUoGrxJ+R2R3TagsjsyCAWhGVQGkrshg3ag09JBX6MMUGhUDlRyPy9RUFIYFio1CYRzrVrJjxILrXl4EgAAAABJRU5ErkJggg==";
 
@@ -12,6 +16,8 @@ let tray;
 let storePath;
 let configPath;
 let storeHistory = [];
+let dismissedUpdateVersion = "";
+let latestUpdateInfo = null;
 
 const defaultPrompts = [
   {
@@ -48,6 +54,121 @@ function createTrayIcon() {
   return icon;
 }
 
+function normalizeVersion(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^v/i, "")
+    .split(/[+-]/)[0];
+}
+
+function compareVersions(a, b) {
+  const left = normalizeVersion(a).split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const right = normalizeVersion(b).split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const length = Math.max(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    const diff = (left[index] || 0) - (right[index] || 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+function requestJson(url) {
+  return new Promise((resolve, reject) => {
+    const request = https.get(url, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        "User-Agent": `Prompt-Dock/${app.getVersion()}`
+      },
+      timeout: 8000
+    }, (response) => {
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(chunk));
+      response.on("end", () => {
+        const body = Buffer.concat(chunks).toString("utf8");
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          const error = new Error(`GitHub API returned ${response.statusCode}`);
+          error.statusCode = response.statusCode;
+          error.body = body;
+          reject(error);
+          return;
+        }
+        try {
+          resolve(JSON.parse(body));
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+
+    request.on("timeout", () => {
+      request.destroy(new Error("检查更新超时。"));
+    });
+    request.on("error", reject);
+  });
+}
+
+function normalizeReleaseUpdate(release) {
+  const latestVersion = normalizeVersion(release.tag_name || release.name);
+  return {
+    currentVersion: app.getVersion(),
+    latestVersion,
+    releaseName: release.name || `v${latestVersion}`,
+    notes: release.body || "",
+    url: release.html_url || UPDATE_RELEASES_URL,
+    publishedAt: release.published_at || ""
+  };
+}
+
+async function fetchLatestUpdateInfo() {
+  try {
+    const release = await requestJson(`${UPDATE_API_BASE}/releases/latest`);
+    return normalizeReleaseUpdate(release);
+  } catch (error) {
+    if (error.statusCode !== 404) throw error;
+    const tags = await requestJson(`${UPDATE_API_BASE}/tags?per_page=1`);
+    const latestTag = Array.isArray(tags) ? tags[0] : null;
+    if (!latestTag?.name) return null;
+    const latestVersion = normalizeVersion(latestTag.name);
+    return {
+      currentVersion: app.getVersion(),
+      latestVersion,
+      releaseName: latestTag.name,
+      notes: "",
+      url: UPDATE_RELEASES_URL,
+      publishedAt: ""
+    };
+  }
+}
+
+async function checkForUpdates({ notifyRenderer = true, manual = false } = {}) {
+  try {
+    const updateInfo = await fetchLatestUpdateInfo();
+    const hasUpdate = Boolean(updateInfo?.latestVersion && compareVersions(updateInfo.latestVersion, app.getVersion()) > 0);
+    latestUpdateInfo = hasUpdate ? { ...updateInfo, dismissed: updateInfo.latestVersion === dismissedUpdateVersion } : null;
+    const result = {
+      ok: true,
+      hasUpdate,
+      update: latestUpdateInfo,
+      currentVersion: app.getVersion()
+    };
+
+    if (notifyRenderer && mainWindow && latestUpdateInfo && !latestUpdateInfo.dismissed) {
+      mainWindow.webContents.send("update:available", latestUpdateInfo);
+    }
+
+    return result;
+  } catch (error) {
+    const result = {
+      ok: false,
+      hasUpdate: false,
+      currentVersion: app.getVersion(),
+      error: manual ? `检查更新失败：${error.message}` : "检查更新失败。"
+    };
+    if (manual && mainWindow) mainWindow.webContents.send("update:error", result.error);
+    return result;
+  }
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1120,
@@ -73,6 +194,7 @@ function createWindow() {
 
   mainWindow.once("ready-to-show", () => {
     mainWindow.show();
+    checkForUpdates();
   });
 }
 
@@ -104,17 +226,19 @@ async function ensureConfig() {
     const config = JSON.parse(raw);
     storePath = config.storePath || defaultStorePath();
     storeHistory = Array.isArray(config.storeHistory) ? config.storeHistory : [];
+    dismissedUpdateVersion = config.dismissedUpdateVersion || "";
     if (!storeHistory.includes(storePath)) storeHistory.unshift(storePath);
   } catch {
     storePath = defaultStorePath();
     storeHistory = [storePath];
+    dismissedUpdateVersion = "";
     await writeConfig();
   }
 }
 
 async function writeConfig() {
   await fs.mkdir(path.dirname(configPath), { recursive: true });
-  await fs.writeFile(configPath, JSON.stringify({ storePath, storeHistory }, null, 2), "utf8");
+  await fs.writeFile(configPath, JSON.stringify({ storePath, storeHistory, dismissedUpdateVersion }, null, 2), "utf8");
 }
 
 async function rememberStore(filePath) {
@@ -164,6 +288,10 @@ app.whenReady().then(async () => {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: `显示/隐藏 (${SHORTCUT_LABEL})`, click: toggleWindow },
+      { label: "检查更新", click: () => {
+        showWindow();
+        checkForUpdates({ manual: true });
+      } },
       { label: "退出", click: () => {
         app.isQuiting = true;
         app.quit();
@@ -237,5 +365,21 @@ ipcMain.handle("clipboard:copy", async (_event, text) => {
 
 ipcMain.handle("window:hide", async () => {
   if (mainWindow) mainWindow.hide();
+  return { ok: true };
+});
+
+ipcMain.handle("updates:check", async () => checkForUpdates({ manual: true }));
+
+ipcMain.handle("updates:dismiss", async (_event, version) => {
+  dismissedUpdateVersion = normalizeVersion(version);
+  await writeConfig();
+  if (latestUpdateInfo?.latestVersion === dismissedUpdateVersion) {
+    latestUpdateInfo = { ...latestUpdateInfo, dismissed: true };
+  }
+  return { ok: true };
+});
+
+ipcMain.handle("updates:open", async (_event, url) => {
+  await shell.openExternal(url || latestUpdateInfo?.url || UPDATE_RELEASES_URL);
   return { ok: true };
 });

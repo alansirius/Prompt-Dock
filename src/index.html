@@ -9,6 +9,17 @@
   <body>
     <div class="appTabs">
       <div class="tabBar" id="tabBar"></div>
+      <div class="updateBanner" id="updateBanner" hidden>
+        <div class="updateBannerCopy">
+          <strong id="updateTitle">发现新版本</strong>
+          <span id="updateNotes"></span>
+        </div>
+        <div class="updateBannerActions">
+          <button class="textButton" id="dismissUpdate" type="button">稍后提醒</button>
+          <button class="secondary" id="checkUpdate" type="button">检查更新</button>
+          <button class="primary" id="openUpdate" type="button">前往下载</button>
+        </div>
+      </div>
 
       <section class="tabPanel homeTabPanel" id="homeTabPanel">
         <div class="shell">

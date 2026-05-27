@@ -7,7 +7,8 @@ const state = {
   storePath: "",
   saveTimer: null,
   activeTabId: "home",
-  editorTabs: []
+  editorTabs: [],
+  updateInfo: null
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -42,6 +43,12 @@ const elements = {
   versionNameInput: $("#versionNameInput"),
   saveVersion: $("#saveVersion"),
   addEditorColumn: $("#addEditorColumn"),
+  updateBanner: $("#updateBanner"),
+  updateTitle: $("#updateTitle"),
+  updateNotes: $("#updateNotes"),
+  dismissUpdate: $("#dismissUpdate"),
+  checkUpdate: $("#checkUpdate"),
+  openUpdate: $("#openUpdate"),
   contentInput: $("#contentInput"),
   favoriteButton: $("#favoriteButton"),
   status: $("#status")
@@ -338,6 +345,47 @@ function fileNameFromPath(filePath) {
   return String(filePath || "").split(/[\\/]/).filter(Boolean).pop() || "未命名数据源";
 }
 
+function updateNotePreview(notes) {
+  const line = String(notes || "")
+    .split("\n")
+    .map((item) => item.replace(/^#+\s*/, "").trim())
+    .find(Boolean);
+  return line || "已有新版可用，建议下载最新版本。";
+}
+
+function renderUpdateBanner() {
+  const update = state.updateInfo;
+  elements.updateBanner.hidden = !update;
+  if (!update) return;
+
+  elements.updateTitle.textContent = `Prompt Dock ${update.latestVersion} 可用`;
+  elements.updateNotes.textContent = updateNotePreview(update.notes);
+  elements.openUpdate.title = update.url || "打开下载页面";
+}
+
+async function showUpdate(update) {
+  if (!update || update.dismissed) return;
+  state.updateInfo = update;
+  renderUpdateBanner();
+}
+
+async function checkForUpdates({ quiet = false } = {}) {
+  elements.checkUpdate.disabled = true;
+  try {
+    const result = await window.promptDock.checkForUpdates();
+    if (result.hasUpdate && result.update && !result.update.dismissed) {
+      state.updateInfo = result.update;
+      renderUpdateBanner();
+      elements.status.textContent = "发现新版本";
+    } else if (!quiet) {
+      elements.status.textContent = `当前已是最新版本（${result.currentVersion || ""}）`;
+    }
+    if (!result.ok && !quiet) elements.status.textContent = result.error || "检查更新失败";
+  } finally {
+    elements.checkUpdate.disabled = false;
+  }
+}
+
 function renderStoreHistory(history = []) {
   elements.storeHistory.innerHTML = "";
   elements.currentStorePath.textContent = state.storePath || "点击选择提示词 JSON 数据源";
@@ -600,16 +648,19 @@ function renderVersionList(prompt) {
       id: version.id,
       title: versionLabel(version, index),
       meta: `创建于 ${formatVersionCreatedAt(version.createdAt)}`,
-      label: versionTag(version, index)
-    }))
+      label: versionTag(version, index),
+      createdAt: version.createdAt || 0
+    })).sort((a, b) => b.createdAt - a.createdAt)
   ];
 
   const activeColumn = tab.editorColumns.find((column) => column.id === tab.activeEditorColumnId) || tab.editorColumns[0];
   elements.versionList.innerHTML = items.map((item) => `
-    <button class="versionListItem${activeColumn?.versionId === item.id ? " active" : ""}" type="button" data-version-id="${escapeHtml(item.id)}">
-      <span class="versionItemTitle">${escapeHtml(item.title)}</span>
-      ${item.label ? `<span class="versionItemLabel">${escapeHtml(item.label)}</span>` : ""}
-      <small class="versionItemMeta">${escapeHtml(item.meta)}</small>
+    <button class="versionListItem${activeColumn?.versionId === item.id ? " active" : ""}" type="button" data-version-id="${escapeHtml(item.id)}" title="${escapeHtml(item.label ? `${item.label} · ${item.title}` : item.title)}">
+      <span class="versionItemTitle">
+        ${item.label ? `<span class="versionItemLabel" title="${escapeHtml(item.label)}">${escapeHtml(item.label)}</span>` : ""}
+        <span class="versionItemName">${escapeHtml(item.title)}</span>
+      </span>
+      <small class="versionItemMeta" title="${escapeHtml(item.meta)}">${escapeHtml(item.meta)}</small>
       ${item.id === "current" ? "" : `<span class="versionDelete" role="button" tabindex="0" data-version-id="${escapeHtml(item.id)}" title="删除版本" aria-label="删除版本">×</span>`}
     </button>
   `).join("");
@@ -988,6 +1039,16 @@ function bindEvents() {
   $("#newPrompt").addEventListener("click", () => createPrompt());
   $("#duplicatePrompt").addEventListener("click", () => createPrompt(selectedPrompt()));
   $("#copyPrompt").addEventListener("click", copySelected);
+  elements.checkUpdate.addEventListener("click", () => checkForUpdates());
+  elements.dismissUpdate.addEventListener("click", async () => {
+    if (state.updateInfo?.latestVersion) await window.promptDock.dismissUpdate(state.updateInfo.latestVersion);
+    state.updateInfo = null;
+    renderUpdateBanner();
+  });
+  elements.openUpdate.addEventListener("click", () => {
+    if (!state.updateInfo) return;
+    window.promptDock.openUpdate(state.updateInfo.url);
+  });
   $("#clearSearch").addEventListener("click", () => {
     state.query = "";
     elements.search.value = "";
@@ -1159,6 +1220,10 @@ function bindEvents() {
     elements.search.focus();
     elements.search.select();
   });
+  window.promptDock.onUpdateAvailable(showUpdate);
+  window.promptDock.onUpdateError((message) => {
+    elements.status.textContent = message;
+  });
 }
 
 async function init() {
@@ -1170,6 +1235,7 @@ async function init() {
   renderStoreHistory(storeHistory || []);
   elements.shortcutLabel.textContent = `${shortcut} 唤起`;
   render();
+  setTimeout(() => checkForUpdates({ quiet: true }), 1200);
 }
 
 init();

@@ -519,7 +519,7 @@ p {
 .appTabs,
 .tabShell {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   height: 100vh;
   min-width: 0;
   min-height: 0;
@@ -595,10 +595,57 @@ p {
 }
 
 .tabPanel {
+  grid-row: 3;
   height: 100%;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+.updateBanner {
+  display: flex;
+  grid-row: 2;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+  padding: 10px 14px;
+  border-bottom: 1px solid color-mix(in oklch, var(--accent), var(--line) 40%);
+  background:
+    linear-gradient(90deg, color-mix(in oklch, var(--accent-soft), var(--panel) 12%), var(--panel));
+  box-shadow: 0 1px 0 oklch(99.5% 0.006 86 / 0.7) inset;
+}
+
+.updateBanner[hidden] {
+  display: none;
+}
+
+.updateBannerCopy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.updateBannerCopy strong {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 820;
+}
+
+.updateBannerCopy span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.updateBannerActions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
 }
 
 .listSearchBar {
@@ -1056,11 +1103,11 @@ textarea:focus {
 .versionListItem {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 5px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 7px;
   width: 100%;
-  min-height: 58px;
-  padding: 10px 11px;
+  min-height: 62px;
+  padding: 10px 36px 10px 11px;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   color: var(--ink);
@@ -1085,19 +1132,26 @@ textarea:focus {
 }
 
 .versionItemTitle {
+  display: flex;
   grid-column: 1;
-  overflow: hidden;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
   font-size: 12px;
   font-weight: 820;
+  line-height: 1.25;
+}
+
+.versionItemName {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .versionItemLabel {
-  grid-column: 1;
-  grid-row: 2;
-  width: fit-content;
-  max-width: 100%;
+  flex: 0 0 auto;
+  max-width: 54px;
   overflow: hidden;
   padding: 2px 6px;
   border: 1px solid color-mix(in oklch, var(--accent), var(--line) 36%);
@@ -1113,7 +1167,7 @@ textarea:focus {
 
 .versionItemMeta {
   grid-column: 1;
-  grid-row: 3;
+  min-width: 0;
   overflow: hidden;
   color: var(--muted);
   font-size: 10px;
@@ -1123,10 +1177,10 @@ textarea:focus {
 }
 
 .versionDelete {
+  position: absolute;
+  top: 50%;
+  right: 8px;
   display: grid;
-  grid-column: 2;
-  grid-row: 1 / span 3;
-  align-self: center;
   width: 24px;
   height: 24px;
   place-items: center;
@@ -1137,7 +1191,7 @@ textarea:focus {
   font-weight: 800;
   line-height: 1;
   opacity: 0;
-  transform: scale(0.92);
+  transform: translateY(-50%) scale(0.92);
   transition: opacity 160ms ease, transform 180ms cubic-bezier(0.22, 1, 0.36, 1), color 160ms ease, background-color 160ms ease, border-color 160ms ease;
 }
 
@@ -1145,7 +1199,7 @@ textarea:focus {
 .versionListItem.active .versionDelete,
 .versionDelete:focus-visible {
   opacity: 1;
-  transform: scale(1);
+  transform: translateY(-50%) scale(1);
 }
 
 .versionDelete:hover,
